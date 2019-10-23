@@ -829,18 +829,31 @@ extension CarbStore {
     /// - Parameters:
     ///   - start: The earliest date of effects to retrieve
     ///   - end: The latest date of effects to retrieve, if provided
-    ///   - effectVelocities: A timeline of glucose effect velocities, ordered by start date
+    ///   - effectVelocities: A timeline of observed insulin counteraction, if provided
+    ///   - sampleStart: If provided, fetch only entries after this date
     ///   - completion: A closure called once the effects have been retrieved
     ///   - result: An array of effects, in chronological order
-    public func getGlucoseEffects(start: Date, end: Date? = nil, effectVelocities: [GlucoseEffectVelocity]? = nil, completion: @escaping(_ result: CarbStoreResult<[GlucoseEffect]>) -> Void) {
+    public func getGlucoseEffects(start: Date, end: Date? = nil, sampleStart: Date? = nil, effectVelocities: [GlucoseEffectVelocity]? = nil, completion: @escaping(_ result: CarbStoreResult<[GlucoseEffect]>) -> Void) {
         queue.async {
             guard let carbRatioSchedule = self.carbRatioScheduleApplyingOverrideHistory, let insulinSensitivitySchedule = self.insulinSensitivityScheduleApplyingOverrideHistory else {
                 completion(.failure(.notConfigured))
                 return
             }
-
-            // To know glucose effects at the requested start date, we need to fetch samples that might still be absorbing
-            let foodStart = start.addingTimeInterval(-self.maximumAbsorptionTimeInterval)
+            
+            var foodStart: Date
+            var observedInsulinCounteraction: [GlucoseEffectVelocity]? = nil
+            if let sampleStart = sampleStart {
+                // If sampleStart is provided, fetch only samples after that date
+                foodStart = sampleStart
+                // Since not all absorbing samples are necessarily fetched, glucose effects are calculated based on linear carb absorption model
+                observedInsulinCounteraction = []
+            } else {
+                // To know glucose effects at the requested start date, we need to fetch samples that might still be absorbing
+                foodStart = start.addingTimeInterval(-self.maximumAbsorptionTimeInterval)
+                // All absorbing samples are fetched, glucose effects are calculated based on dynamic carb absorption model using observed insulin counteraction
+                observedInsulinCounteraction = effectVelocities
+            }
+            
             let defaultAbsorptionTimes = self.defaultAbsorptionTimes
             let absorptionTimeOverrun = self.absorptionTimeOverrun
             let delay = self.delay
@@ -849,9 +862,9 @@ extension CarbStore {
             self.getCachedCarbSamples(start: foodStart, end: end) { (samples) in
                 let effects: [GlucoseEffect]
 
-                if let effectVelocities = effectVelocities {
+                if let observedInsulinCounteraction = observedInsulinCounteraction {
                     effects = samples.map(
-                        to: effectVelocities,
+                        to: observedInsulinCounteraction,
                         carbRatio: carbRatioSchedule,
                         insulinSensitivity: insulinSensitivitySchedule,
                         absorptionTimeOverrun: absorptionTimeOverrun,
@@ -882,7 +895,7 @@ extension CarbStore {
             }
         }
     }
-
+    
     /// Retrieves the total number of recorded carbohydrates for the specified period.
     ///
     /// This operation is performed asynchronously and the completion will be executed on an arbitrary background queue.
