@@ -10,6 +10,20 @@ import Foundation
 import HealthKit
 
 
+struct CarbModelSettings {
+    var absorptionModel: CarbAbsorptionComputable
+    var initialAbsorptionTimeOverrun: Double
+    var adaptiveAbsorptionRateEnabled: Bool
+    var adaptiveRateStandbyIntervalFraction: Double
+    
+    init(absorptionModel: CarbAbsorptionComputable, initialAbsorptionTimeOverrun: Double, adaptiveAbsorptionRateEnabled: Bool, adaptiveRateStandbyIntervalFraction: Double = 0.2) {
+        self.absorptionModel = absorptionModel
+        self.initialAbsorptionTimeOverrun = initialAbsorptionTimeOverrun
+        self.adaptiveAbsorptionRateEnabled = adaptiveAbsorptionRateEnabled
+        self.adaptiveRateStandbyIntervalFraction = adaptiveRateStandbyIntervalFraction
+    }
+}
+
 protocol CarbAbsorptionComputable {
     /// Returns the percentage of total carbohydrates absorbed as blood glucose at a specified interval after eating.
     ///
@@ -17,7 +31,7 @@ protocol CarbAbsorptionComputable {
     ///   - time: The interval after carbs were eaten
     ///   - absorptionTime: The total time of carb absorption
     /// - Returns: The percentage of the total carbohydrates that have been absorbed as blood glucose
-    static func percentAbsorptionAtTime(_ time: TimeInterval, absorptionTime: TimeInterval) -> Double
+    func percentAbsorptionAtTime(_ time: TimeInterval, absorptionTime: TimeInterval) -> Double
 
     /// Returns the total absorption time for a percentage of total carbohydrates absorbed as blood glucose at a specified interval after eating.
     ///
@@ -27,7 +41,7 @@ protocol CarbAbsorptionComputable {
     ///   - percentAbsorption: The percentage of the total carbohydrates that have been absorbed as blood glucose
     ///   - time: The interval after the carbs were eaten
     /// - Returns: The total time of carb absorption
-    static func absorptionTime(forPercentAbsorption percentAbsorption: Double, atTime time: TimeInterval) -> TimeInterval
+    func absorptionTime(forPercentAbsorption percentAbsorption: Double, atTime time: TimeInterval) -> TimeInterval
 
     /// Returns the number of total carbohydrates absorbed as blood glucose at a specified interval after eating
     ///
@@ -36,7 +50,7 @@ protocol CarbAbsorptionComputable {
     ///   - time: The interval after carbs were eaten
     ///   - absorptionTime: The total time of carb absorption
     /// - Returns: The number of total carbohydrates that have been absorbed as blood glucose
-    static func absorbedCarbs(of total: Double, atTime time: TimeInterval, absorptionTime: TimeInterval) -> Double
+    func absorbedCarbs(of total: Double, atTime time: TimeInterval, absorptionTime: TimeInterval) -> Double
 
     /// Returns the number of total carbohydrates not yet absorbed as blood glucose at a specified interval after eating
     ///
@@ -45,16 +59,23 @@ protocol CarbAbsorptionComputable {
     ///   - time: The interval after carbs were eaten
     ///   - absorptionTime: The total time of carb absorption
     /// - Returns: The number of total carbohydrates that have not yet been absorbed as blood glucose
-    static func unabsorbedCarbs(of total: Double, atTime time: TimeInterval, absorptionTime: TimeInterval) -> Double
+    func unabsorbedCarbs(of total: Double, atTime time: TimeInterval, absorptionTime: TimeInterval) -> Double
+    
+    /// Returns the number of total carbohydrates not yet absorbed as blood glucose at a specified interval after eating
+    ///
+    /// - Parameters:
+    ///   - percentTime: The percentage of absorption time elapsed since start of absorption
+    /// - Returns: The percentage absorption rate at the percentage of absorption time
+    func percentRateAtPercentTime(forPercentTime percentTime: Double) -> Double
 }
 
 
 extension CarbAbsorptionComputable {
-    static func absorbedCarbs(of total: Double, atTime time: TimeInterval, absorptionTime: TimeInterval) -> Double {
+    func absorbedCarbs(of total: Double, atTime time: TimeInterval, absorptionTime: TimeInterval) -> Double {
         return total * percentAbsorptionAtTime(time, absorptionTime: absorptionTime)
     }
 
-    static func unabsorbedCarbs(of total: Double, atTime time: TimeInterval, absorptionTime: TimeInterval) -> Double {
+    func unabsorbedCarbs(of total: Double, atTime time: TimeInterval, absorptionTime: TimeInterval) -> Double {
         return total * (1 - percentAbsorptionAtTime(time, absorptionTime: absorptionTime))
     }
 }
@@ -63,7 +84,7 @@ extension CarbAbsorptionComputable {
 // MARK: - Parabolic absorption as described by Scheiner
 // This is the integral approximation of the Scheiner GI curve found in Think Like a Pancreas, Fig 7-8, which first appeared in [GlucoDyn](https://github.com/kenstack/GlucoDyn)
 struct ParabolicAbsorption: CarbAbsorptionComputable {
-    static func percentAbsorptionAtTime(_ time: TimeInterval, absorptionTime: TimeInterval) -> Double {
+    func percentAbsorptionAtTime(_ time: TimeInterval, absorptionTime: TimeInterval) -> Double {
         switch time {
         case let t where t < 0:
             return 0
@@ -76,7 +97,7 @@ struct ParabolicAbsorption: CarbAbsorptionComputable {
         }
     }
 
-    static func absorptionTime(forPercentAbsorption percentAbsorption: Double, atTime time: TimeInterval) -> TimeInterval {
+    func absorptionTime(forPercentAbsorption percentAbsorption: Double, atTime time: TimeInterval) -> TimeInterval {
         switch percentAbsorption {
         case let a where a <= 0:
             return 0
@@ -88,12 +109,23 @@ struct ParabolicAbsorption: CarbAbsorptionComputable {
             return time
         }
     }
+    
+    func percentRateAtPercentTime(forPercentTime percentTime: Double) -> Double {
+        switch percentTime {
+        case let t where t > 0 && t <= 0.5:
+            return 4.0 * t
+        case let t where t > 0.5 && t < 1.0:
+            return 4.0 - 4.0 * t
+        default:
+            return 0.0
+        }
+    }
 }
 
 
 // MARK: - Linear absorption as a factor of reported duration
 struct LinearAbsorption: CarbAbsorptionComputable {
-    static func percentAbsorptionAtTime(_ time: TimeInterval, absorptionTime: TimeInterval) -> Double {
+    func percentAbsorptionAtTime(_ time: TimeInterval, absorptionTime: TimeInterval) -> Double {
         switch time {
         case let t where t <= 0:
             return 0
@@ -104,7 +136,7 @@ struct LinearAbsorption: CarbAbsorptionComputable {
         }
     }
 
-    static func absorptionTime(forPercentAbsorption percentAbsorption: Double, atTime time: TimeInterval) -> TimeInterval {
+    func absorptionTime(forPercentAbsorption percentAbsorption: Double, atTime time: TimeInterval) -> TimeInterval {
         switch percentAbsorption {
         case let a where a <= 0:
             return 0
@@ -114,16 +146,103 @@ struct LinearAbsorption: CarbAbsorptionComputable {
             return time
         }
     }
+    
+    func percentRateAtPercentTime(forPercentTime percentTime: Double) -> Double {
+        switch percentTime {
+        case let t where t > 0 && t <= 1.0:
+            return 1.0
+        default:
+            return 0.0
+        }
+    }
 }
 
+// MARK: - Piecewise linear absorption as a factor of reported duration
+/// Nonlinear  carb absorption model where absorption rate increases linearly from zero to a maximum value at a fraction of absorption time equal to percentEndOfRise, then remains constant until a fraction of absorption time equal to percentStartOfFall, and then decreases linearly to zero at the end of absorption time
+/// - Parameters:
+///   - percentEndOfRise: the percentage of absorption time when absorption rate reaches maximum, must be strictly between 0 and 1
+///   - percentStartOfFall: the percentage of absorption time when absorption rate starts to decay, must be stritctly between 0 and 1 and  greater than percentEndOfRise
+struct NonlinearAbsorption: CarbAbsorptionComputable {
+    
+    let percentEndOfRise = 0.15
+    let percentStartOfFall = 0.5
+    var scale: Double {
+        return(2.0 / (1.0 + percentStartOfFall - percentEndOfRise))
+    }
+    
+    func percentAbsorptionAtTime(_ time: TimeInterval, absorptionTime: TimeInterval) -> Double {
+        var percentTime: Double
+        switch time {
+        case let t where t <= 0:
+            percentTime = 0.0
+        case let t where t < absorptionTime:
+            percentTime = t / absorptionTime
+        default:
+            percentTime = 1.0
+        }
+        switch percentTime {
+        case let t where t < percentEndOfRise:
+            return 0.5 * scale * pow(t, 2.0) / percentEndOfRise
+        case let t where t >= percentEndOfRise && t < percentStartOfFall:
+            return scale * (t - 0.5 * percentEndOfRise)
+        case let t where t >= percentStartOfFall && t < 1.0:
+            return scale * (percentStartOfFall - 0.5 * percentEndOfRise +
+            (t - percentStartOfFall) * (1.0 - 0.5 * (t - percentStartOfFall) / (1.0 - percentStartOfFall)))
+        default:
+            return 1.0
+        }
+    }
+    
+    func absorptionTime(forPercentAbsorption percentAbsorption: Double, atTime time: TimeInterval) -> TimeInterval {
+        var percentTime: Double
+        switch percentAbsorption {
+        case let a where a <= 0:
+            return 0
+        case let a where a > 0.0 && a < 0.5 * scale * percentEndOfRise:
+            percentTime = (2.0 * percentEndOfRise * a / scale).squareRoot()
+            return time / percentTime
+        case let a where a >= 0.5 * scale * percentEndOfRise && a < scale * (percentStartOfFall - 0.5 * percentEndOfRise):
+            percentTime = 0.5 * percentEndOfRise + a / scale
+            return time / percentTime
+        case let a where a >= scale * (percentStartOfFall - 0.5 * percentEndOfRise) && a < 1.0:
+            percentTime = 1.0 - ((1.0 - percentStartOfFall) *
+                (1.0 + percentStartOfFall - percentEndOfRise) * (1.0 - a)).squareRoot()
+            return time / percentTime
+        default:
+            return time
+        }
+    }
+    
+    func percentRateAtPercentTime(forPercentTime percentTime: Double) -> Double {
+        switch percentTime {
+        case let t where t <= 0:
+            return 0.0
+        case let t where t > 0 && t < percentEndOfRise:
+            return scale * t / percentEndOfRise
+        case let t where t >= percentEndOfRise && t < percentStartOfFall:
+            return scale
+        case let t where t >= percentStartOfFall && t < 1.0:
+            return scale * ((1.0 - t) / (1.0 - percentStartOfFall))
+        case let t where t == 1.0:
+            return 0.0
+        default:
+            return 0.0
+        }
+    }
+}
 
 extension CarbEntry {
+    
+    var absorptionModel: CarbAbsorptionComputable {
+      return CarbAbsorptionModel.settings.absorptionModel
+    }
+    
     func carbsOnBoard(at date: Date, defaultAbsorptionTime: TimeInterval, delay: TimeInterval) -> Double {
         let time = date.timeIntervalSince(startDate)
         let value: Double
 
         if time >= 0 {
-            value = ParabolicAbsorption.unabsorbedCarbs(of: quantity.doubleValue(for: HKUnit.gram()), atTime: time - delay, absorptionTime: absorptionTime ?? defaultAbsorptionTime)
+            value = absorptionModel.unabsorbedCarbs(of: quantity.doubleValue(for: HKUnit.gram()), atTime: time - delay, absorptionTime: absorptionTime ?? defaultAbsorptionTime)
         } else {
             value = 0
         }
@@ -139,7 +258,7 @@ extension CarbEntry {
     ) -> Double {
         let time = date.timeIntervalSince(startDate)
 
-        return ParabolicAbsorption.absorbedCarbs(
+        return absorptionModel.absorbedCarbs(
             of: quantity.doubleValue(for: .gram()),
             atTime: time - delay,
             absorptionTime: absorptionTime
@@ -160,7 +279,7 @@ extension CarbEntry {
     fileprivate func estimatedAbsorptionTime(forAbsorbedCarbs carbs: Double, at date: Date) -> TimeInterval {
         let time = date.timeIntervalSince(startDate)
 
-        return max(time, ParabolicAbsorption.absorptionTime(forPercentAbsorption: carbs / quantity.doubleValue(for: .gram()), atTime: time))
+        return max(time, absorptionModel.absorptionTime(forPercentAbsorption: carbs / quantity.doubleValue(for: .gram()), atTime: time))
     }
 }
 
@@ -408,6 +527,20 @@ extension Collection {
 ///   - The minimum/maximum amounts of absorption used to clamp our observation data within reasonable bounds
 fileprivate class CarbStatusBuilder<T: CarbEntry> {
 
+    // MARK: Model settings
+    
+    private var absorptionModel: CarbAbsorptionComputable {
+      return CarbAbsorptionModel.settings.absorptionModel
+    }
+    
+    private var adaptiveAbsorptionRateEnabled: Bool {
+        return CarbAbsorptionModel.settings.adaptiveAbsorptionRateEnabled
+    }
+    
+    private var adaptiveRateStandbyInterval: TimeInterval {
+        return initialAbsorptionTime * CarbAbsorptionModel.settings.adaptiveRateStandbyIntervalFraction
+    }
+    
     // MARK: User-entered data
 
     /// The carb entry input
@@ -425,6 +558,8 @@ fileprivate class CarbStatusBuilder<T: CarbEntry> {
     /// The carbohydrate-sensitivity factor for this entry, in glucose units per gram
     let carbohydrateSensitivityFactor: Double
 
+    /// The absorption time for this entry before any absorption is observed
+    let initialAbsorptionTime: TimeInterval
 
     // MARK: Minimum/maximum bounding factors
 
@@ -449,9 +584,8 @@ fileprivate class CarbStatusBuilder<T: CarbEntry> {
     private var minPredictedGrams: Double {
         // We incorporate a delay when calculating minimum absorption values
         let time = lastEffectDate.timeIntervalSince(entry.startDate) - delay
-        return LinearAbsorption.absorbedCarbs(of: entryGrams, atTime: time, absorptionTime: maxAbsorptionTime)
+        return absorptionModel.absorbedCarbs(of: entryGrams, atTime: time, absorptionTime: maxAbsorptionTime)
     }
-
 
     // MARK: Incremental observation
 
@@ -489,13 +623,39 @@ fileprivate class CarbStatusBuilder<T: CarbEntry> {
 
         return min(entryGrams, max(minPredictedGrams, observedGrams))
     }
-
-    /// The maximum amount of time needed for the remaining entry grams to absorb, at the fixed minimum absorption rate
+    
+    /// Time to absorb observed grams according to the carb absorption model
+    private var timeToAbsorbObservedCarbs: TimeInterval = 0.0
+    
+    /// The amount of time needed for the remaining entry grams to absorb
     private var estimatedTimeRemaining: TimeInterval {
-        guard minAbsorptionRate > 0 else {
-            return 0
+        let time = lastEffectDate.timeIntervalSince(entry.startDate) - delay
+        guard time > 0 else {
+            return initialAbsorptionTime
         }
-        return (entryGrams - clampedGrams) / minAbsorptionRate
+        let notToExceedTimeRemaining = max(maxAbsorptionTime - time, 0.0)
+        guard notToExceedTimeRemaining > 0 else {
+            return 0.0
+        }
+        let percentAbsorbed = clampedGrams / entryGrams
+        let dynamicAbsorptionTime = absorptionModel.absorptionTime(forPercentAbsorption: percentAbsorbed, atTime: time)
+        guard dynamicAbsorptionTime > 0 else {
+            return 0.0
+        }
+        var dynamicTimeRemaining: TimeInterval
+        if adaptiveAbsorptionRateEnabled && time > adaptiveRateStandbyInterval {
+            // If adaptive absorption rate is enabled, and if the time since start of absorption is greater than the standby interval, the remaining time is estimated assuming the observed relative absorption rate persists for the remaining carbs
+            dynamicTimeRemaining = dynamicAbsorptionTime - time
+            timeToAbsorbObservedCarbs = time
+        } else {
+            // If adaptive absorption rate is disabled, or if the time since start of absorption is less than the standby interval, the remaining time is estimated assuming the modeled absorption rate
+            let percentTimeToAbsorbObservedCarbs = time / dynamicAbsorptionTime
+            timeToAbsorbObservedCarbs = percentTimeToAbsorbObservedCarbs * initialAbsorptionTime
+            dynamicTimeRemaining = initialAbsorptionTime - timeToAbsorbObservedCarbs
+        }
+        // time remaining must not extend beyond the maximum absorption time
+        let estimatedTimeRemaining = min(dynamicTimeRemaining, notToExceedTimeRemaining)
+        return(estimatedTimeRemaining)
     }
 
     /// The timeline of observed absorption, if greater than the minimum required absorption.
@@ -509,14 +669,16 @@ fileprivate class CarbStatusBuilder<T: CarbEntry> {
     ///   - entry: The carb entry input
     ///   - carbUnit: The unit used for carb values
     ///   - carbohydrateSensitivityFactor: The carbohydrate-sensitivity factor for the entry, in glucose units per gram
+    ///   - initialAbsorptionTime: The absorption initially assigned to this entry before any absorption is observed
     ///   - maxAbsorptionTime: The maximum absorption time allowed for this entry, determining the minimum absorption rate
     ///   - delay: An amount of time to wait after the entry date before minimum absorption is assumed to begin
-    ///   - lastEffectDate: The last recorded date of effect observation, used to initialize minimum absorption
+    ///   - lastEffectDate: The last recorded date of effect observation, used to initialize absorption at model defined rate
     ///   - initialObservedEffect: The initial amount of observed effect, in glucose units. Defaults to 0.
-    init(entry: T, carbUnit: HKUnit, carbohydrateSensitivityFactor: Double, maxAbsorptionTime: TimeInterval, delay: TimeInterval, lastEffectDate: Date?, initialObservedEffect: Double = 0) {
+    init(entry: T, carbUnit: HKUnit, carbohydrateSensitivityFactor: Double, initialAbsorptionTime: TimeInterval, maxAbsorptionTime: TimeInterval, delay: TimeInterval, lastEffectDate: Date?, initialObservedEffect: Double = 0) {
         self.entry = entry
         self.carbUnit = carbUnit
         self.carbohydrateSensitivityFactor = carbohydrateSensitivityFactor
+        self.initialAbsorptionTime = initialAbsorptionTime
         self.maxAbsorptionTime = maxAbsorptionTime
         self.delay = delay
         self.observedEffect = initialObservedEffect
@@ -571,7 +733,8 @@ fileprivate class CarbStatusBuilder<T: CarbEntry> {
             total: entry.quantity,
             remaining: HKQuantity(unit: carbUnit, doubleValue: entryGrams - clampedGrams),
             observedDate: observedAbsorptionDates,
-            estimatedTimeRemaining: estimatedTimeRemaining
+            estimatedTimeRemaining: estimatedTimeRemaining,
+            timeToAbsorbObservedCarbs: timeToAbsorbObservedCarbs
         )
 
         return CarbStatus(
@@ -580,6 +743,18 @@ fileprivate class CarbStatusBuilder<T: CarbEntry> {
             observedTimeline: clampedTimeline
         )
     }
+    
+    func absorptionRateAtTime(t: TimeInterval) -> Double {
+        let dynamicAbsorptionTime = min(observedAbsorptionDates.duration + estimatedTimeRemaining, maxAbsorptionTime)
+        guard dynamicAbsorptionTime > 0 else {
+            return(0.0)
+        }
+        // time t nomalized to estimated or observed total absorption time
+        let percentTime = t / dynamicAbsorptionTime
+        let absorptionRate = entryGrams / dynamicAbsorptionTime
+        return absorptionRate * absorptionModel.percentRateAtPercentTime(forPercentTime: percentTime)
+    }
+    
 }
 
 
@@ -617,7 +792,7 @@ extension Collection where Element: CarbEntry {
                 CarbStatus(entry: entry, absorption: nil, observedTimeline: nil)
             }
         }
-
+        
         // for computation
         let glucoseUnit = HKUnit.milligramsPerDeciliter
         let carbUnit = HKUnit.gram()
@@ -625,11 +800,12 @@ extension Collection where Element: CarbEntry {
         let builders: [CarbStatusBuilder<Element>] = map { (entry) in
             let carbRatio = carbRatios.quantity(at: entry.startDate)
             let insulinSensitivity = insulinSensitivities.quantity(at: entry.startDate)
+            let initialAbsorptionTimeOverrun = CarbAbsorptionModel.settings.initialAbsorptionTimeOverrun
 
             return CarbStatusBuilder(
                 entry: entry,
                 carbUnit: carbUnit,
-                carbohydrateSensitivityFactor: insulinSensitivity.doubleValue(for: glucoseUnit) / carbRatio.doubleValue(for: carbUnit),
+                carbohydrateSensitivityFactor: insulinSensitivity.doubleValue(for: glucoseUnit) / carbRatio.doubleValue(for: carbUnit), initialAbsorptionTime: (entry.absorptionTime ?? defaultAbsorptionTime) * initialAbsorptionTimeOverrun,
                 maxAbsorptionTime: (entry.absorptionTime ?? defaultAbsorptionTime) * absorptionTimeOverrun,
                 delay: delay,
                 lastEffectDate: effectVelocities.last?.endDate
@@ -642,6 +818,8 @@ extension Collection where Element: CarbEntry {
                 continue
             }
 
+            // calculate instantanous absorption rate for all active entries
+            
             // Apply effect to all active entries
 
             // Select only the entries whose dates overlap the current date interval.
@@ -655,20 +833,29 @@ extension Collection where Element: CarbEntry {
             // during activity
             var effectValue = Swift.max(0, dxEffect.effect.quantity.doubleValue(for: glucoseUnit))
 
-            // Sum the minimum absorption rates of each active entry to determine how to split the active effects
+            // Sum the current absorption rates of each active entry to determine how to split the active effects
             var totalRate = activeBuilders.reduce(0) { (totalRate, builder) -> Double in
-                return totalRate + builder.minAbsorptionRate
+                let effectTime = dxEffect.startDate.timeIntervalSince(builder.entry.startDate)
+                let absorptionRateAtEffectTime = builder.absorptionRateAtTime(t: effectTime)
+                return totalRate + absorptionRateAtEffectTime
             }
 
             for builder in activeBuilders {
                 // Apply a portion of the effect to this entry
-                let partialEffectValue = Swift.min(builder.remainingEffect, (builder.minAbsorptionRate / totalRate) * effectValue)
-                totalRate -= builder.minAbsorptionRate
-                effectValue -= partialEffectValue
+                let effectTime = dxEffect.startDate.timeIntervalSince(builder.entry.startDate)
+                let absorptionRateAtEffectTime = builder.absorptionRateAtTime(t: effectTime)
+                // If total rate is zero, assign zero to partial effect
+                var partialEffectValue: Double = 0.0
+                if totalRate > 0 {
+                    partialEffectValue = Swift.min(builder.remainingEffect, (absorptionRateAtEffectTime / totalRate) * effectValue)
+                    totalRate -= absorptionRateAtEffectTime
+                    effectValue -= partialEffectValue
+                }
 
                 builder.addNextEffect(partialEffectValue, start: dxEffect.startDate, end: dxEffect.endDate)
 
                 // If there's still remainder effects with no additional entries to account them to, count them as overrun on the final entry
+                // dm61 TODO(?): we should probably assign remainder effects to the entry with the latest end date, not to the entry with the latest start date
                 if effectValue > Double(Float.ulpOfOne) && builder === activeBuilders.last! {
                     builder.addNextEffect(effectValue, start: dxEffect.startDate, end: dxEffect.endDate)
                 }
