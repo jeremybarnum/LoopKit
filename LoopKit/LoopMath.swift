@@ -9,6 +9,7 @@
 import Foundation
 import HealthKit
 
+//test commit
 
 public enum LoopMath {
     static func simulationDateRangeForSamples<T: Collection>(
