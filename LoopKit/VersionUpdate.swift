@@ -67,5 +67,5 @@ public extension Notification.Name {
 }
 
 public extension Notification.Name {
-     static let testWarning = Notification.Name(rawValue: "com.loopkit.Loop.testWarning")
+     static let slowAbsorptionWarning = Notification.Name(rawValue: "com.loopkit.Loop.slowAbsorptionWarning")
 }
