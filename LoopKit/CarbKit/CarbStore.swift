@@ -188,7 +188,7 @@ public final class CarbStore {
     
     static let healthKitQueryAnchorMetadataKey = "com.loopkit.CarbStore.hkQueryAnchor"
     
-    var settings = CarbModelSettings(absorptionModel: PiecewiseLinearAbsorption(), initialAbsorptionTimeOverrun: 1.5, adaptiveAbsorptionRateEnabled: false)
+    var settings = CarbModelSettings(absorptionModel: PiecewiseLinearAbsorption(), initialAbsorptionTimeOverrun: 1.0, adaptiveAbsorptionRateEnabled: false)
 
     private let provenanceIdentifier: String
 

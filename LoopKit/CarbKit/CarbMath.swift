@@ -12,7 +12,7 @@ import HealthKit
 public struct CarbMath {
     public static let maximumAbsorptionTimeInterval: TimeInterval = .hours(10)
     public static let defaultAbsorptionTime: TimeInterval = .hours(3)
-    public static let defaultAbsorptionTimeOverrun: Double = 1.5
+    public static let defaultAbsorptionTimeOverrun: Double = 1.0
     public static let defaultEffectDelay: TimeInterval = .minutes(10)
 }
 
