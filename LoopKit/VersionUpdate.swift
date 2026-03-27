@@ -65,3 +65,7 @@ extension VersionUpdate {
 public extension Notification.Name {
     static let SoftwareUpdateAvailable = Notification.Name(rawValue: "com.loopkit.Loop.SoftwareUpdateAvailable")
 }
+
+public extension Notification.Name {
+     static let lowBGWarning = Notification.Name(rawValue: "com.loopkit.Loop.lowBGWarning")
+}
