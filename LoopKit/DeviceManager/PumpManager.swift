@@ -251,3 +251,36 @@ public extension PumpManager {
         }
     }
 }
+
+
+// MARK: - PumpConnectionLendable (optional capability)
+
+/// An OPTIONAL capability for pump managers whose device connection can be
+/// deliberately released — loaned to another controller (e.g. an Apple Watch
+/// commanding the pump directly) — and later reclaimed.
+///
+/// Motivation: some pumps (Omnipod DASH) hold a single BLE connection and give
+/// it to whichever credentialed controller connects last. A pump manager that
+/// maintains a standing auto-connect therefore reclaims the device within
+/// seconds of any radio availability, making a deliberate second-controller
+/// session impossible without disabling the phone's radio entirely. This
+/// capability lets the app ask the pump manager to stop bidding for the
+/// connection for the duration of a loan, restoring deterministic
+/// single-writer control.
+///
+/// Conformance is optional: pump managers that do not support loans simply do
+/// not conform, and no behavior changes. Callers discover the capability by
+/// conditional cast, as with other optional capabilities.
+public protocol PumpConnectionLendable: AnyObject {
+    /// True while the connection is deliberately released (a loan is active).
+    /// Implementations should persist this so an app relaunch mid-loan does not
+    /// silently re-arm the connection and steal the device back.
+    var isConnectionReleased: Bool { get }
+
+    /// Stop bidding for the device's connection so another controller can hold
+    /// it uncontested. Must leave device state, pairing and keys intact.
+    func releaseConnection()
+
+    /// Resume bidding for the device's connection after a loan ends.
+    func reclaimConnection()
+}
