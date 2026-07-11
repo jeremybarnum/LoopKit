@@ -18,4 +18,10 @@ public struct LoopAlgorithmInput {
     public var predictionInput: LoopPredictionInput
     public var predictionDate: Date
     public var doseRecommendationType: DoseRecommendationType
+
+    public init(predictionInput: LoopPredictionInput, predictionDate: Date, doseRecommendationType: DoseRecommendationType) {
+        self.predictionInput = predictionInput
+        self.predictionDate = predictionDate
+        self.doseRecommendationType = doseRecommendationType
+    }
 }

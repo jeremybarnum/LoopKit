@@ -15,6 +15,8 @@ public enum AlgorithmError: Error {
     case basalHistoryDoesNotCoverDoses
     case sensitivityHistoryDoesNotCoverDoses
     case schedulesDoNotCoverCarbEntries
+    case missingMaximumBasalRate
+    case missingMaximumBolus
 }
 
 public struct LoopAlgorithmEffects {
@@ -60,18 +62,74 @@ public actor LoopAlgorithm {
     public typealias InputType = LoopPredictionInput
     public typealias OutputType = LoopPrediction
 
-//    public static func generateRecommendation(input: LoopAlgorithmInput) throws -> DoseRecommendation {
-//        let prediction = try generatePrediction(input: input.predictionInput, startDate: input.predictionDate)
-//
-//        switch input.doseRecommendationType {
-//        case .manualBolus:
-//            prediction.glucose.recommendedManualBolus(to: <#T##GlucoseRangeSchedule#>, suspendThreshold: <#T##HKQuantity?#>, sensitivity: <#T##InsulinSensitivitySchedule#>, model: <#T##InsulinModel#>, pendingInsulin: <#T##Double#>, maxBolus: <#T##Double#>)
-//        case .automaticBolus:
-//            <#code#>
-//        case .tempBasal:
-//            <#code#>
-//        }
-//    }
+    /// Generates a glucose prediction and a dose recommendation to correct it.
+    ///
+    /// The prediction runs on the absolute timelines in `input.predictionInput.settings`;
+    /// the dosing math consumes daily schedules, so those are passed alongside — the same
+    /// split the phone's live path (LoopDataManager) has. Dosing limits come from
+    /// `settings.maximumBasalRatePerHour` / `settings.maximumBolus` and are required for
+    /// the corresponding recommendation types.
+    public static func generateRecommendation(
+        input: LoopAlgorithmInput,
+        correctionRange: GlucoseRangeSchedule,
+        sensitivity: InsulinSensitivitySchedule,
+        basalRates: BasalRateSchedule,
+        model: InsulinModel,
+        pendingInsulin: Double = 0,
+        lastTempBasal: DoseEntry? = nil,
+        automaticBolusApplicationFactor: Double = 0.4
+    ) throws -> (prediction: LoopPrediction, recommendation: DoseRecommendation) {
+        let prediction = try generatePrediction(input: input.predictionInput, startDate: input.predictionDate)
+
+        let settings = input.predictionInput.settings
+        let date = input.predictionDate
+        let suspendThreshold = settings.suspendThreshold?.quantity
+
+        switch input.doseRecommendationType {
+        case .manualBolus:
+            guard let maxBolus = settings.maximumBolus else {
+                throw AlgorithmError.missingMaximumBolus
+            }
+            let bolus = prediction.glucose.recommendedManualBolus(
+                to: correctionRange,
+                at: date,
+                suspendThreshold: suspendThreshold,
+                sensitivity: sensitivity,
+                model: model,
+                pendingInsulin: pendingInsulin,
+                maxBolus: maxBolus)
+            return (prediction, DoseRecommendation(basalAdjustment: nil, bolusUnits: bolus.amount))
+        case .automaticBolus:
+            guard let maxBolus = settings.maximumBolus else {
+                throw AlgorithmError.missingMaximumBolus
+            }
+            let dose = prediction.glucose.recommendedAutomaticDose(
+                to: correctionRange,
+                at: date,
+                suspendThreshold: suspendThreshold,
+                sensitivity: sensitivity,
+                model: model,
+                basalRates: basalRates,
+                maxAutomaticBolus: maxBolus,
+                partialApplicationFactor: automaticBolusApplicationFactor,
+                lastTempBasal: lastTempBasal)
+            return (prediction, DoseRecommendation(basalAdjustment: dose?.basalAdjustment, bolusUnits: dose?.bolusUnits))
+        case .tempBasal:
+            guard let maxBasalRate = settings.maximumBasalRatePerHour else {
+                throw AlgorithmError.missingMaximumBasalRate
+            }
+            let temp = prediction.glucose.recommendedTempBasal(
+                to: correctionRange,
+                at: date,
+                suspendThreshold: suspendThreshold,
+                sensitivity: sensitivity,
+                model: model,
+                basalRates: basalRates,
+                maxBasalRate: maxBasalRate,
+                lastTempBasal: lastTempBasal)
+            return (prediction, DoseRecommendation(basalAdjustment: temp))
+        }
+    }
 
     // Generates a forecast predicting glucose.
     public static func generatePrediction(input: LoopPredictionInput, startDate: Date? = nil) throws -> LoopPrediction {

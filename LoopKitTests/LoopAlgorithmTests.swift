@@ -130,6 +130,95 @@ class LoopAlgorithmTests: XCTestCase {
         XCTAssertEqual(prediction.glucose.last!.quantity.doubleValue(for: .milligramsPerDeciliter), 120, accuracy: 1.0)
     }
 
+    // MARK: - Dose recommendations
+
+    private func dosingSchedules() -> (correctionRange: GlucoseRangeSchedule, sensitivity: InsulinSensitivitySchedule, basalRates: BasalRateSchedule) {
+        let correctionRange = GlucoseRangeSchedule(
+            unit: .milligramsPerDeciliter,
+            dailyItems: [RepeatingScheduleValue(startTime: 0, value: DoubleRange(minValue: 95, maxValue: 105))])!
+        let sensitivity = InsulinSensitivitySchedule(
+            unit: .milligramsPerDeciliter,
+            dailyItems: [RepeatingScheduleValue(startTime: 0, value: 50.0)])!
+        let basalRates = BasalRateSchedule(dailyItems: [RepeatingScheduleValue(startTime: 0, value: 1.0)])!
+        return (correctionRange, sensitivity, basalRates)
+    }
+
+    private func recommendation(glucose: Double, type: DoseRecommendationType, maxBolus: Double = 5, maxBasalRate: Double = 3, suspendThreshold: GlucoseThreshold? = nil) throws -> (prediction: LoopPrediction, recommendation: DoseRecommendation) {
+        var settings = fullCoverageSettings()
+        settings.maximumBolus = maxBolus
+        settings.maximumBasalRatePerHour = maxBasalRate
+        settings.suspendThreshold = suspendThreshold
+
+        let input = LoopAlgorithmInput(
+            predictionInput: LoopPredictionInput(
+                glucoseHistory: flatGlucoseHistory(value: glucose),
+                doses: [],
+                carbEntries: [],
+                settings: settings),
+            predictionDate: start,
+            doseRecommendationType: type)
+
+        let schedules = dosingSchedules()
+        return try LoopAlgorithm.generateRecommendation(
+            input: input,
+            correctionRange: schedules.correctionRange,
+            sensitivity: schedules.sensitivity,
+            basalRates: schedules.basalRates,
+            model: ExponentialInsulinModelPreset.rapidActingAdult)
+    }
+
+    func testManualBolusRecommendationForHighGlucose() throws {
+        // Flat 180 vs target 95-105 at ISF 50: correction is ~1.5-1.7 U
+        let (_, rec) = try recommendation(glucose: 180, type: .manualBolus)
+        XCTAssertNil(rec.basalAdjustment)
+        XCTAssertEqual(rec.bolusUnits!, 1.6, accuracy: 0.25)
+    }
+
+    func testManualBolusRespectsMaxBolus() throws {
+        let (_, rec) = try recommendation(glucose: 350, type: .manualBolus, maxBolus: 1.0)
+        XCTAssertEqual(rec.bolusUnits!, 1.0, accuracy: .ulpOfOne)
+    }
+
+    func testManualBolusZeroWhenInRange() throws {
+        let (_, rec) = try recommendation(glucose: 100, type: .manualBolus)
+        XCTAssertEqual(rec.bolusUnits!, 0, accuracy: .ulpOfOne)
+    }
+
+    func testTempBasalRecommendationForHighGlucose() throws {
+        let (_, rec) = try recommendation(glucose: 180, type: .tempBasal)
+        let temp = try XCTUnwrap(rec.basalAdjustment)
+        XCTAssertGreaterThan(temp.unitsPerHour, 1.0) // above scheduled basal
+        XCTAssertLessThanOrEqual(temp.unitsPerHour, 3.0) // clamped by max
+    }
+
+    func testTempBasalZeroWhenPredictionBelowSuspendThreshold() throws {
+        let (_, rec) = try recommendation(
+            glucose: 60,
+            type: .tempBasal,
+            suspendThreshold: GlucoseThreshold(unit: .milligramsPerDeciliter, value: 65))
+        let temp = try XCTUnwrap(rec.basalAdjustment)
+        XCTAssertEqual(temp.unitsPerHour, 0, accuracy: .ulpOfOne)
+    }
+
+    func testRecommendationThrowsWithoutMaxBolus() {
+        var settings = fullCoverageSettings()
+        settings.maximumBolus = nil
+        let input = LoopAlgorithmInput(
+            predictionInput: LoopPredictionInput(glucoseHistory: flatGlucoseHistory(), doses: [], carbEntries: [], settings: settings),
+            predictionDate: start,
+            doseRecommendationType: .manualBolus)
+        let schedules = dosingSchedules()
+
+        XCTAssertThrowsError(try LoopAlgorithm.generateRecommendation(
+            input: input,
+            correctionRange: schedules.correctionRange,
+            sensitivity: schedules.sensitivity,
+            basalRates: schedules.basalRates,
+            model: ExponentialInsulinModelPreset.rapidActingAdult)) { error in
+            XCTAssertEqual(error as? AlgorithmError, .missingMaximumBolus)
+        }
+    }
+
     func testBolusLowersPredictionByISF() throws {
         // A 1U bolus at ISF 50 against flat 120 should settle near 70
         let dose = DoseEntry(
@@ -158,7 +247,9 @@ extension AlgorithmError: Equatable {
              (.incompleteSchedules, .incompleteSchedules),
              (.basalHistoryDoesNotCoverDoses, .basalHistoryDoesNotCoverDoses),
              (.sensitivityHistoryDoesNotCoverDoses, .sensitivityHistoryDoesNotCoverDoses),
-             (.schedulesDoNotCoverCarbEntries, .schedulesDoNotCoverCarbEntries):
+             (.schedulesDoNotCoverCarbEntries, .schedulesDoNotCoverCarbEntries),
+             (.missingMaximumBasalRate, .missingMaximumBasalRate),
+             (.missingMaximumBolus, .missingMaximumBolus):
             return true
         default:
             return false
