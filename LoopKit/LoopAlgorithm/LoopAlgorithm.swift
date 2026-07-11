@@ -12,6 +12,9 @@ import HealthKit
 public enum AlgorithmError: Error {
     case missingGlucose
     case incompleteSchedules
+    case basalHistoryDoesNotCoverDoses
+    case sensitivityHistoryDoesNotCoverDoses
+    case schedulesDoNotCoverCarbEntries
 }
 
 public struct LoopAlgorithmEffects {
@@ -83,10 +86,25 @@ public actor LoopAlgorithm {
 
         let settings = input.settings
 
-        if let doseStart = input.doses.first?.startDate {
-            assert(!input.settings.basal.isEmpty, "Missing basal history input.")
-            let basalStart = input.settings.basal.first!.startDate
-            precondition(basalStart <= doseStart, "Basal history must cover historic dose range. First dose date: \(doseStart) < \(basalStart)")
+        // Validate schedule coverage up front. The math below enforces these with
+        // preconditionFailure (InsulinMath, CarbMath); on the watch, misaligned
+        // handover inputs must surface as a recoverable error, not a crash.
+        if let earliestDoseStart = input.doses.map(\.startDate).min() {
+            guard let basalStart = settings.basal.first?.startDate, basalStart <= earliestDoseStart else {
+                throw AlgorithmError.basalHistoryDoesNotCoverDoses
+            }
+            for dose in input.doses {
+                guard let isf = settings.sensitivity.closestPrior(to: dose.startDate), isf.endDate >= dose.startDate else {
+                    throw AlgorithmError.sensitivityHistoryDoesNotCoverDoses
+                }
+            }
+        }
+
+        for entry in input.carbEntries {
+            guard settings.sensitivity.closestPrior(to: entry.startDate) != nil,
+                  settings.carbRatio.closestPrior(to: entry.startDate) != nil else {
+                throw AlgorithmError.schedulesDoNotCoverCarbEntries
+            }
         }
 
         // Overlay basal history on basal doses, splitting doses to get amount delivered relative to basal

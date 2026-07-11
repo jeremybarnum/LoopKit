@@ -69,7 +69,7 @@ extension LoopAlgorithmSettings: Codable {
         let targetMgdl = try container.decode([AbsoluteScheduleValue<DoubleRange>].self, forKey: .target)
         self.target = targetMgdl.map {
             let min = HKQuantity(unit: .milligramsPerDeciliter, doubleValue: $0.value.minValue)
-            let max = HKQuantity(unit: .milligramsPerDeciliter, doubleValue: $0.value.minValue)
+            let max = HKQuantity(unit: .milligramsPerDeciliter, doubleValue: $0.value.maxValue)
             return AbsoluteScheduleValue(startDate: $0.startDate, endDate: $0.endDate, value: ClosedRange(uncheckedBounds: (lower: min, upper: max)))
         }
         self.delta = TimeInterval(minutes: 5)
