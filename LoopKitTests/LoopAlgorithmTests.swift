@@ -34,6 +34,114 @@ class LoopAlgorithmTests: XCTestCase {
         }
     }
 
+    /// The watch engine's configuration: insulin + carbs, no momentum/RC —
+    /// scenario tests below must match what actually runs on the wrist.
+    private func watchSettings() -> LoopAlgorithmSettings {
+        var settings = fullCoverageSettings()
+        settings.algorithmEffectsOptions = [.insulin, .carbs]
+        return settings
+    }
+
+    /// Flat history that ends with a linear rise over the final `risingMinutes`
+    /// — same anchor value as `flatGlucoseHistory` so scenarios differ only in
+    /// what the glucose TRAIL says, not where it ends.
+    private func risingGlucoseHistory(endingAt anchor: Double, risePerFiveMinutes: Double, risingMinutes: Double, hours: Double = 10) -> [StoredGlucoseSample] {
+        stride(from: -TimeInterval.hours(hours), through: 0, by: .minutes(5)).map { offset in
+            let minutesFromEnd = -offset / 60
+            let value: Double
+            if minutesFromEnd < risingMinutes {
+                value = anchor - risePerFiveMinutes * (minutesFromEnd / 5)
+            } else {
+                value = anchor - risePerFiveMinutes * (risingMinutes / 5)
+            }
+            return StoredGlucoseSample(
+                startDate: start.addingTimeInterval(offset),
+                quantity: HKQuantity(unit: .milligramsPerDeciliter, doubleValue: value))
+        }
+    }
+
+    // MARK: - Scenario: dynamic carb absorption responds to observed glucose
+
+    /// Same 30 g carb entry 30 minutes ago, same 120 mg/dL anchor, no insulin.
+    /// A steep observed rise since eating means much of the carb effect has
+    /// ALREADY happened (fast absorption observed) — less remains, so eventual
+    /// BG is lower than in the flat-trail scenario where nothing has been
+    /// observed absorbing and (nearly) the whole effect is still to come.
+    func testObservedAbsorptionReducesRemainingCarbEffect() throws {
+        let carbs = [StoredCarbEntry(
+            startDate: start.addingTimeInterval(-.minutes(30)),
+            quantity: HKQuantity(unit: .gram(), doubleValue: 30),
+            absorptionTime: .hours(3))]
+
+        // ICE (observed counteraction) is computed against the insulin-effect
+        // timeline, and only where that timeline COVERS the glucose samples:
+        // zero doses -> no timeline -> observation silently off; a dose whose
+        // effect window (start + DIA) ends before the carb window -> same.
+        // This test originally caught exactly that. A tiny 3 h-old primer keeps
+        // the timeline alive through now (~2 mg/dL residual, identical in both
+        // scenarios). On the watch, pulled pre-loan history plays this role.
+        let primerStart = start.addingTimeInterval(-.hours(3))
+        let primer = [DoseEntry(type: .bolus, startDate: primerStart, endDate: primerStart, value: 0.1, unit: .units)]
+
+        // Scenario A: BG rose 10 mg/dL per 5 min for the 30 min since eating
+        // (60 mg/dL of observed rise, unexplained by insulin — i.e., carbs).
+        let fastObserved = LoopPredictionInput(
+            glucoseHistory: risingGlucoseHistory(endingAt: 120, risePerFiveMinutes: 10, risingMinutes: 30),
+            doses: primer,
+            carbEntries: carbs,
+            settings: watchSettings())
+
+        // Scenario B: dead flat — no absorption observed at all.
+        let nothingObserved = LoopPredictionInput(
+            glucoseHistory: flatGlucoseHistory(value: 120),
+            doses: primer,
+            carbEntries: carbs,
+            settings: watchSettings())
+
+        let fastEventual = try LoopAlgorithm.generatePrediction(input: fastObserved)
+            .glucose.last!.quantity.doubleValue(for: .milligramsPerDeciliter)
+        let slowEventual = try LoopAlgorithm.generatePrediction(input: nothingObserved)
+            .glucose.last!.quantity.doubleValue(for: .milligramsPerDeciliter)
+
+        // Both predict a rise from the anchor (carbs remain in both scenarios)…
+        XCTAssertGreaterThan(fastEventual, 120)
+        XCTAssertGreaterThan(slowEventual, 120)
+        // …but the flat trail leaves substantially more carb effect ahead.
+        // 30 g at CSF = ISF/CR = 5 mg/dL per gram is 150 mg/dL of total effect.
+        XCTAssertGreaterThan(slowEventual, fastEventual + 25,
+            "observed absorption should consume remaining carb effect (fast: \(fastEventual), slow: \(slowEventual))")
+    }
+
+    // MARK: - Scenario: insulin decay
+
+    /// Identical 1 U boluses, delivered fresh vs 3 h ago, same flat 120 anchor.
+    /// The fresh bolus has nearly its whole 50 mg/dL of effect remaining; the
+    /// 3 h-old one (about half way through the ~6 h curve) has already spent
+    /// most of it — and what it HAS spent is baked into the anchor BG.
+    func testOlderBolusHasLessRemainingEffect() throws {
+        func eventual(bolusAge: TimeInterval) throws -> Double {
+            let doseStart = start.addingTimeInterval(-bolusAge)
+            let input = LoopPredictionInput(
+                glucoseHistory: flatGlucoseHistory(value: 120),
+                doses: [DoseEntry(type: .bolus, startDate: doseStart, endDate: doseStart, value: 1.0, unit: .units)],
+                carbEntries: [],
+                settings: watchSettings())
+            return try LoopAlgorithm.generatePrediction(input: input)
+                .glucose.last!.quantity.doubleValue(for: .milligramsPerDeciliter)
+        }
+
+        let freshBolusEventual = try eventual(bolusAge: .minutes(5))
+        let agedBolusEventual = try eventual(bolusAge: .hours(3))
+
+        // Fresh: essentially the full 50 mg/dL drop is still ahead.
+        XCTAssertEqual(freshBolusEventual, 70, accuracy: 3.0)
+        // Aged: most of the effect is spent; well under half remains.
+        XCTAssertGreaterThan(agedBolusEventual, 100)
+        XCTAssertLessThan(agedBolusEventual, 120)
+        XCTAssertGreaterThan(agedBolusEventual, freshBolusEventual + 25,
+            "decay should shrink remaining effect (fresh: \(freshBolusEventual), aged: \(agedBolusEventual))")
+    }
+
     // MARK: - Codable
 
     func testSettingsCodableRoundTripPreservesTargetRange() throws {
