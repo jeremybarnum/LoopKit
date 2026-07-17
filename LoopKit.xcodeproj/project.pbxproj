@@ -145,6 +145,7 @@
 		432CF86F20D76CCF0066B889 /* GlucoseTrend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 432CF86E20D76CCF0066B889 /* GlucoseTrend.swift */; };
 		432CF87120D76D5A0066B889 /* GlucoseDisplayable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 432CF87020D76D5A0066B889 /* GlucoseDisplayable.swift */; };
 		432CF87320D774220066B889 /* PumpManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 432CF87220D774220066B889 /* PumpManager.swift */; };
+		FADE00000000000000000201 /* PumpManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 432CF87220D774220066B889 /* PumpManager.swift */; };
 		433BC7A720523DB7000B1200 /* NewGlucoseSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 433BC7A620523DB7000B1200 /* NewGlucoseSample.swift */; };
 		433BC7AA20538D4C000B1200 /* CachedGlucoseObject+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 433BC7A820538D4C000B1200 /* CachedGlucoseObject+CoreDataClass.swift */; };
 		433BC7AB20538D4C000B1200 /* CachedGlucoseObject+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 433BC7A920538D4C000B1200 /* CachedGlucoseObject+CoreDataProperties.swift */; };
@@ -4423,6 +4424,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FADE00000000000000000201 /* PumpManager.swift in Sources */,
 				C1CB895925C8E7D900782BAC /* Modelv1v4.xcmappingmodel in Sources */,
 				89AE2235228BCAAB00BDFD85 /* CarbSensitivitySchedule.swift in Sources */,
 				89AE2236228BCAAB00BDFD85 /* DailyQuantitySchedule+Override.swift in Sources */,
