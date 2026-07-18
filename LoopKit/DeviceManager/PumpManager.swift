@@ -281,4 +281,19 @@ public protocol PumpConnectionLendable: AnyObject {
 
     /// Resume bidding for the device's connection after a loan ends.
     func reclaimConnection()
+
+    /// The device's cumulative-delivered odometer as last reported, if the pump
+    /// keeps one — an AUDIT input for post-loan reconciliation, never a record
+    /// source. Default: nil (no odometer).
+    var lentDeviceInsulinDelivered: Double? { get }
+
+    /// Force a real status round-trip (bypassing freshness optimizations) so the
+    /// odometer is current before an audit read. Completion: success.
+    /// Default: completes false (no forced read available).
+    func refreshLentDeviceStatus(completion: @escaping (Bool) -> Void)
+}
+
+extension PumpConnectionLendable {
+    public var lentDeviceInsulinDelivered: Double? { return nil }
+    public func refreshLentDeviceStatus(completion: @escaping (Bool) -> Void) { completion(false) }
 }
