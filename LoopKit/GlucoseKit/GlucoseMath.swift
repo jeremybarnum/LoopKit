@@ -81,17 +81,27 @@ extension BidirectionalCollection where Element: GlucoseSampleValue, Index == In
     ///   - delta: The time differential for the returned values
     ///   - velocityMaximum: The limit on how fast the momentum effect can be. Defaults to 4 mg/dL/min based on physiological rates, if nil passed.
     /// - Returns: An array of glucose effects
+    /// - Parameter requireContinuous: When `true` (stock default), the samples must pass
+    ///   `isContinuous()` — `|first − last| < 5min × count`, i.e. no read may be missing from the
+    ///   ~5-min grid. When `false`, that gate is skipped so a linear regression is computed from
+    ///   whatever samples are in range even across a single missed reading. The Loop watch's Sport
+    ///   Mode passes `false`: the pod/G7 share one radio, so one G7 read is occasionally lost, and a
+    ///   single 10-min gap trips the strict span test at ANY window width — which would otherwise
+    ///   zero momentum for ~10 min after every such miss (worst exactly when it matters, during
+    ///   exercise). All other guards stay: ≥3 samples, single provenance, no calibrations, and the
+    ///   4 mg/dL/min velocity cap that bounds the regression's output.
     public func linearMomentumEffect(
         duration: TimeInterval = GlucoseMath.momentumDuration,
         delta: TimeInterval = GlucoseMath.defaultDelta,
-        velocityMaximum: HKQuantity? = nil
+        velocityMaximum: HKQuantity? = nil,
+        requireContinuous: Bool = true
     ) -> [GlucoseEffect] {
 
         let velocityMax = velocityMaximum ?? HKQuantity(unit: HKUnit.milligramsPerDeciliter.unitDivided(by: .minute()), doubleValue: 4.0)
 
         guard
             self.count > 2,  // Linear regression isn't much use without 3 or more entries.
-            isContinuous() && !containsCalibrations() && hasSingleProvenance,
+            (!requireContinuous || isContinuous()) && !containsCalibrations() && hasSingleProvenance,
             let firstSample = self.first,
             let lastSample = self.last,
             let (startDate, endDate) = LoopMath.simulationDateRangeForSamples([lastSample], duration: duration, delta: delta)
