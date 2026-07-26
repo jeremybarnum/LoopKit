@@ -291,9 +291,17 @@ public protocol PumpConnectionLendable: AnyObject {
     /// odometer is current before an audit read. Completion: success.
     /// Default: completes false (no forced read available).
     func refreshLentDeviceStatus(completion: @escaping (Bool) -> Void)
+
+    /// True once a reclaimed connection is TRULY re-established (the link is up and the
+    /// device is reachable). `reclaimConnection()` only re-arms the bid; the actual reconnect
+    /// can land seconds-to-minutes later, so UI that must wait for the device (e.g. a
+    /// "reclaiming…" indicator) keys on this rather than on the loan flag clearing. Default:
+    /// true — a manager that can't report readiness never appears stuck "reconnecting".
+    var isConnectionReady: Bool { get }
 }
 
 extension PumpConnectionLendable {
     public var lentDeviceInsulinDelivered: Double? { return nil }
     public func refreshLentDeviceStatus(completion: @escaping (Bool) -> Void) { completion(false) }
+    public var isConnectionReady: Bool { return true }
 }
