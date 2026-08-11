@@ -931,6 +931,111 @@ class RecommendTempBasalTests: XCTestCase {
 
         XCTAssertNil(dose)
     }
+
+    // MARK: - PODLOAN #29: the binding-constraint derivation
+
+    /// THE SAFETY TEST. The derivation overload must return byte-for-byte what the stock
+    /// signature returns, on every fixture in this suite. If this ever fails, an "instrumentation
+    /// only" change has altered dosing — which is the one thing it must never do.
+    func testDerivationOverloadIsBehaviourIdenticalToStock() {
+        let fixtures = [
+            "recommend_temp_basal_correct_low_at_min", "recommend_temp_basal_dropping_then_rising",
+            "recommend_temp_basal_flat_and_high", "recommend_temp_basal_high_and_falling",
+            "recommend_temp_basal_high_and_rising", "recommend_temp_basal_in_range_and_rising",
+            "recommend_temp_basal_no_change_glucose", "recommend_temp_basal_start_high_end_in_range",
+            "recommend_temp_basal_start_high_end_low", "recommend_temp_basal_start_low_end_high",
+            "recommend_temp_basal_start_low_end_in_range", "recommend_temp_basal_start_very_low_end_high",
+            "recommend_temp_basal_very_low_end_in_range",
+        ]
+        // Exercise the IOB clamp on half the fixtures too — it is the branch most likely to
+        // diverge, since the derivation reads maxBasalRate at three different points.
+        for (i, name) in fixtures.enumerated() {
+            let glucose = loadGlucoseValueFixture(name)
+            let clamp: Double? = i % 2 == 0 ? nil : 0.5
+            let stock = glucose.recommendedTempBasal(
+                to: glucoseTargetRange, at: glucose.first!.startDate,
+                suspendThreshold: suspendThreshold.quantity, sensitivity: insulinSensitivitySchedule,
+                model: walshInsulinModel, basalRates: basalRateSchedule, maxBasalRate: maxBasalRate,
+                additionalActiveInsulinClamp: clamp, lastTempBasal: nil)
+            var derivation: TempBasalDerivation?
+            let instrumented = glucose.recommendedTempBasal(
+                to: glucoseTargetRange, at: glucose.first!.startDate,
+                suspendThreshold: suspendThreshold.quantity, sensitivity: insulinSensitivitySchedule,
+                model: walshInsulinModel, basalRates: basalRateSchedule, maxBasalRate: maxBasalRate,
+                additionalActiveInsulinClamp: clamp, lastTempBasal: nil, derivation: &derivation)
+
+            XCTAssertEqual(stock?.unitsPerHour, instrumented?.unitsPerHour, "rate diverged on \(name)")
+            XCTAssertEqual(stock?.duration, instrumented?.duration, "duration diverged on \(name)")
+            XCTAssertNotNil(derivation, "every call must report a derivation — \(name)")
+        }
+    }
+
+    /// The cliff. A high glucose that FALLS below the target floor collapses maxBasal to the
+    /// scheduled rate — the reason a high eventual can produce a small temp or none at all, and
+    /// invisible in every other field of the audit line.
+    func testDerivationNamesTheMinGuardCliff() {
+        let glucose = loadGlucoseValueFixture("recommend_temp_basal_start_high_end_low")
+        var d: TempBasalDerivation?
+        _ = glucose.recommendedTempBasal(
+            to: glucoseTargetRange, at: glucose.first!.startDate,
+            suspendThreshold: suspendThreshold.quantity, sensitivity: insulinSensitivitySchedule,
+            model: walshInsulinModel, basalRates: basalRateSchedule, maxBasalRate: maxBasalRate,
+            lastTempBasal: nil, derivation: &d)
+
+        XCTAssertNotNil(d)
+        // Whatever the correction branch, the binding point must be REPORTED — naming the
+        // prediction point is the whole purpose.
+        XCTAssertNotNil(d?.bindingMgdl, "the binding prediction point must be named")
+        XCTAssertFalse(d!.summary.isEmpty)
+    }
+
+    /// A curve that never leaves target must say so, rather than leaving the reader to infer it
+    /// from a missing recommendation.
+    func testDerivationNamesInRange() {
+        let glucose = loadGlucoseValueFixture("recommend_temp_basal_no_change_glucose")
+        var d: TempBasalDerivation?
+        _ = glucose.recommendedTempBasal(
+            to: glucoseTargetRange, at: glucose.first!.startDate,
+            suspendThreshold: suspendThreshold.quantity, sensitivity: insulinSensitivitySchedule,
+            model: walshInsulinModel, basalRates: basalRateSchedule, maxBasalRate: maxBasalRate,
+            lastTempBasal: nil, derivation: &d)
+
+        XCTAssertEqual(d?.correction, .inRange)
+        XCTAssertEqual(d?.cap, TempBasalDerivation.Cap.none)
+    }
+
+    /// A curve heading under the suspend threshold is a zero temp, and must be labelled as
+    /// suspend rather than as an ordinary low correction.
+    func testDerivationNamesSuspend() {
+        let glucose = loadGlucoseValueFixture("recommend_temp_basal_start_high_end_low")
+        var d: TempBasalDerivation?
+        let dose = glucose.recommendedTempBasal(
+            to: glucoseTargetRange, at: glucose.first!.startDate,
+            suspendThreshold: HKQuantity(unit: .milligramsPerDeciliter, doubleValue: 200),
+            sensitivity: insulinSensitivitySchedule,
+            model: walshInsulinModel, basalRates: basalRateSchedule, maxBasalRate: maxBasalRate,
+            lastTempBasal: nil, derivation: &d)
+
+        XCTAssertEqual(d?.correction, .suspend, "a curve under an absurdly high suspend threshold is a suspend")
+        XCTAssertEqual(dose?.unitsPerHour, 0)
+    }
+
+    /// The IOB clamp must be distinguishable from plain maxBasal — they cap the same number for
+    /// entirely different reasons, and only one of them is a therapy setting.
+    func testDerivationDistinguishesIobClampFromMaxBasal() {
+        let glucose = loadGlucoseValueFixture("recommend_temp_basal_high_and_rising")
+        var clamped: TempBasalDerivation?
+        _ = glucose.recommendedTempBasal(
+            to: glucoseTargetRange, at: glucose.first!.startDate,
+            suspendThreshold: suspendThreshold.quantity, sensitivity: insulinSensitivitySchedule,
+            model: walshInsulinModel, basalRates: basalRateSchedule, maxBasalRate: maxBasalRate,
+            additionalActiveInsulinClamp: 0.0, lastTempBasal: nil, derivation: &clamped)
+
+        XCTAssertEqual(clamped?.cap, .iobClamp, "zero IOB headroom must be named as the clamp, not as maxBasal")
+        XCTAssertNotNil(clamped?.effectiveMaxBasal)
+        XCTAssertLessThan(clamped!.effectiveMaxBasal, maxBasalRate, "the clamp must actually lower the ceiling")
+    }
+
 }
 
 

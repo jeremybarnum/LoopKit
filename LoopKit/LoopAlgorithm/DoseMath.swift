@@ -17,6 +17,10 @@ private enum InsulinCorrection {
 }
 
 extension InsulinCorrection {
+    /// #29: same value as `units`, exposed to the file so the derivation can report the
+    /// pre-ceiling rate. Read-only; no caller mutates anything through it.
+    fileprivate var diagnosticUnits: Double { units }
+
     /// The delivery units for the correction
     private var units: Double {
         switch self {
@@ -214,6 +218,65 @@ private func targetGlucoseValue(percentEffectDuration: Double, minValue: Double,
 }
 
 
+/// PODLOAN #29: why the recommendation came out the way it did.
+///
+/// Purely diagnostic and purely additive — `recommendedTempBasal` computes exactly what it
+/// computed before; this only reports on the way past. It exists because the audit line had
+/// the inputs and the verdict but never the BINDING CONSTRAINT, which is precisely the piece
+/// needed to reconcile a rate by hand. "eventual 200, no change" is a mystery; "eventual 200,
+/// but the curve dips to 96 at +45m so maxBasal collapsed to scheduled" is a fact.
+///
+/// Two independent axes, because they compose and the interesting cases are combinations:
+/// WHICH correction DoseMath chose, and WHICH ceiling then bound the rate.
+public struct TempBasalDerivation {
+    /// Which branch of `insulinCorrection` fired — what the curve looked like.
+    public enum Correction: String {
+        case inRange              // never leaves target: nothing to correct
+        case aboveRange           // correcting down toward target
+        case entirelyBelowRange   // whole curve under target
+        case suspend              // min at/below suspend threshold: zero temp
+        case none                 // no correction computable (no prediction)
+    }
+    /// Which ceiling actually bound the rate. `.none` means the correction itself set it.
+    public enum Cap: String {
+        case none
+        case minGuard   // correcting high BUT the curve min sits under the target floor,
+                        // so maxBasal collapses to the SCHEDULED rate. The cliff.
+        case iobClamp   // IOB headroom capped it below therapy maxBasal
+        case maxBasal   // therapy maximumBasalRatePerHour capped it
+    }
+    public var correction: Correction
+    public var cap: Cap
+    /// The prediction point the correction was computed against (the min over the curve),
+    /// which is the thing head-math most often gets wrong by using `eventual` instead.
+    public var bindingDate: Date?
+    public var bindingMgdl: Double?
+    /// Rate before any ceiling, and after. Equal ⇒ no ceiling bound.
+    public var uncappedRate: Double?
+    public var cappedRate: Double?
+    /// The ceiling actually in force after minGuard/IOB collapse.
+    public var effectiveMaxBasal: Double
+    /// True when a rate WAS computed but `ifNecessary` suppressed it (already running an
+    /// equivalent temp, or the scheduled rate is already correct). The commonest reason a
+    /// perfectly sensible recommendation produces no pod command.
+    public var suppressedByIfNecessary: Bool
+
+    /// Compact, greppable, one field per link in the chain.
+    public var summary: String {
+        var s = "correction=\(correction.rawValue) cap=\(cap.rawValue)"
+        if let d = bindingMgdl, let t = bindingDate {
+            s += String(format: " bindingPoint=%.0f@%@", d, ISO8601DateFormatter().string(from: t))
+        }
+        if let u = uncappedRate, let c = cappedRate {
+            s += String(format: " rate=%.2f", c)
+            if abs(u - c) > 0.0001 { s += String(format: " (uncapped %.2f)", u) }
+        }
+        s += String(format: " effMaxBasal=%.2f", effectiveMaxBasal)
+        if suppressedByIfNecessary { s += " SUPPRESSED(ifNecessary: already equivalent)" }
+        return s
+    }
+}
+
 extension Collection where Element: GlucoseValue {
 
     /// For a collection of glucose prediction, determine the least amount of insulin delivered at
@@ -404,6 +467,36 @@ extension Collection where Element: GlucoseValue {
         duration: TimeInterval = TimeInterval(30 * 60),
         continuationInterval: TimeInterval = TimeInterval(60 * 11)
     ) -> TempBasalRecommendation? {
+        var ignored: TempBasalDerivation?
+        return recommendedTempBasal(
+            to: correctionRange, at: date, suspendThreshold: suspendThreshold,
+            sensitivity: sensitivity, model: model, basalRates: basalRates,
+            maxBasalRate: maxBasalRate, additionalActiveInsulinClamp: additionalActiveInsulinClamp,
+            lastTempBasal: lastTempBasal, rateRounder: rateRounder,
+            isBasalRateScheduleOverrideActive: isBasalRateScheduleOverrideActive,
+            duration: duration, continuationInterval: continuationInterval,
+            derivation: &ignored)
+    }
+
+    /// #29: identical to the call above in every computed value — it IS the call above — but also
+    /// reports which constraint bound the result. Kept as a separate entry point so the stock
+    /// signature and every existing caller stay untouched.
+    public func recommendedTempBasal(
+        to correctionRange: GlucoseRangeSchedule,
+        at date: Date = Date(),
+        suspendThreshold: HKQuantity?,
+        sensitivity: InsulinSensitivitySchedule,
+        model: InsulinModel,
+        basalRates: BasalRateSchedule,
+        maxBasalRate: Double,
+        additionalActiveInsulinClamp: Double? = nil,
+        lastTempBasal: DoseEntry?,
+        rateRounder: ((Double) -> Double)? = nil,
+        isBasalRateScheduleOverrideActive: Bool = false,
+        duration: TimeInterval = TimeInterval(30 * 60),
+        continuationInterval: TimeInterval = TimeInterval(60 * 11),
+        derivation: inout TempBasalDerivation?
+    ) -> TempBasalRecommendation? {
         let correction = self.insulinCorrection(
             to: correctionRange,
             at: date,
@@ -413,19 +506,53 @@ extension Collection where Element: GlucoseValue {
         )
 
         let scheduledBasalRate = basalRates.value(at: date)
+        let therapyMaxBasalRate = maxBasalRate   // #29: keep the un-collapsed ceiling for the audit
         var maxBasalRate = maxBasalRate
+
+        // #29 bookkeeping only — no behavioral effect.
+        var d = TempBasalDerivation(correction: .none, cap: .none, bindingDate: nil,
+                                    bindingMgdl: nil, uncappedRate: nil, cappedRate: nil,
+                                    effectiveMaxBasal: maxBasalRate, suppressedByIfNecessary: false)
+        switch correction {
+        case .inRange?:                                       d.correction = .inRange
+        case .suspend(min: let m)?:
+            d.correction = .suspend
+            d.bindingDate = m.startDate
+            d.bindingMgdl = m.quantity.doubleValue(for: HKUnit.milligramsPerDeciliter)
+        case .entirelyBelowRange(min: let m, minTarget: _, units: _)?:
+            d.correction = .entirelyBelowRange
+            d.bindingDate = m.startDate
+            d.bindingMgdl = m.quantity.doubleValue(for: HKUnit.milligramsPerDeciliter)
+        case .aboveRange(min: let m, correcting: let c, minTarget: _, units: _)?:
+            d.correction = .aboveRange
+            // The point the correction was actually computed against — NOT `eventual`. This is
+            // the single most common source of head-math disagreement.
+            d.bindingDate = c.startDate
+            d.bindingMgdl = c.quantity.doubleValue(for: HKUnit.milligramsPerDeciliter)
+            _ = m
+        case nil:                                             d.correction = .none
+        }
 
         // TODO: Allow `highBasalThreshold` to be a configurable setting
         if case .aboveRange(min: let min, correcting: _, minTarget: let highBasalThreshold, units: _)? = correction,
             min.quantity < highBasalThreshold
         {
             maxBasalRate = scheduledBasalRate
+            // THE CLIFF (#29): correcting a high, but the curve dips below the target floor
+            // somewhere, so the ceiling collapses all the way to the SCHEDULED rate. This is why
+            // a high eventual can produce "no change" — and it is invisible in every other field
+            // of the audit line.
+            d.cap = .minGuard
+            d.bindingDate = min.startDate
+            d.bindingMgdl = min.quantity.doubleValue(for: HKUnit.milligramsPerDeciliter)
         }
 
         if let additionalActiveInsulinClamp {
             let maxThirtyMinuteRateToKeepIOBBelowLimit = additionalActiveInsulinClamp * 2.0 + scheduledBasalRate  // 30 minutes of a U/hr rate
+            if maxThirtyMinuteRateToKeepIOBBelowLimit < maxBasalRate { d.cap = .iobClamp }
             maxBasalRate = Swift.min(maxThirtyMinuteRateToKeepIOBBelowLimit, maxBasalRate)
         }
+        d.effectiveMaxBasal = maxBasalRate
 
         let temp = correction?.asTempBasal(
             scheduledBasalRate: scheduledBasalRate,
@@ -434,13 +561,32 @@ extension Collection where Element: GlucoseValue {
             rateRounder: rateRounder
         )
 
-        return temp?.ifNecessary(
+        // #29: recompute the pre-ceiling rate the way asTempBasal does, so "was it capped, and by
+        // what?" is answerable. Mirrors asTempBasal exactly (units/hour, + scheduled except on
+        // suspend) — kept adjacent to it so the two move together.
+        if let correction = correction {
+            var uncapped = correction.diagnosticUnits / (duration / TimeInterval(hours: 1))
+            if case .suspend = correction {} else { uncapped += scheduledBasalRate }
+            uncapped = Swift.max(0, uncapped)
+            d.uncappedRate = uncapped
+            d.cappedRate = temp?.unitsPerHour
+            // Untouched by minGuard/IOB but still clipped ⇒ plain therapy maxBasal bound it.
+            if d.cap == .none, let c = temp?.unitsPerHour, uncapped > c + 0.0001,
+               abs(therapyMaxBasalRate - maxBasalRate) < 0.0001 {
+                d.cap = .maxBasal
+            }
+        }
+
+        let necessary = temp?.ifNecessary(
             at: date,
             scheduledBasalRate: scheduledBasalRate,
             lastTempBasal: lastTempBasal,
             continuationInterval: continuationInterval,
             scheduledBasalRateMatchesPump: !isBasalRateScheduleOverrideActive
         )
+        d.suppressedByIfNecessary = (temp != nil && necessary == nil)
+        derivation = d
+        return necessary
     }
 
     /// Recommends a dose suitable for automatic enactment. Uses boluses for high corrections, and temp basals for low corrections.
