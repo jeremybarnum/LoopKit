@@ -570,9 +570,12 @@ extension Collection where Element: GlucoseValue {
             uncapped = Swift.max(0, uncapped)
             d.uncappedRate = uncapped
             d.cappedRate = temp?.unitsPerHour
-            // Untouched by minGuard/IOB but still clipped ⇒ plain therapy maxBasal bound it.
-            if d.cap == .none, let c = temp?.unitsPerHour, uncapped > c + 0.0001,
-               abs(therapyMaxBasalRate - maxBasalRate) < 0.0001 {
+            // maxBasal bound the rate ONLY if the pre-ceiling rate actually exceeded the
+            // ceiling. First field outing (2026-08-11 22:12): the old test attributed ANY
+            // uncapped>capped delta to maxBasal, so the RATE ROUNDER's 0.81→0.80 quantization
+            // printed as "cap=maxBasal" with the ceiling at 3.55 — a mislabel that would have
+            // sent a reader hunting a saturation that never happened. Rounding is not a cap.
+            if d.cap == .none, uncapped > maxBasalRate + 0.0001 {
                 d.cap = .maxBasal
             }
         }
