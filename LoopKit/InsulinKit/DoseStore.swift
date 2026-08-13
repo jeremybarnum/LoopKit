@@ -49,6 +49,27 @@ public enum DoseStoreResult<T> {
 
  Private members should be assumed to not be thread-safe, and access should be contained to within blocks submitted to `persistenceStore.managedObjectContext`, which executes them on a private, serial queue.
  */
+/// Where the hand-back write latency actually goes (2026-08-13).
+///
+/// `addPumpEvents` does NOT call its completion when Core Data has saved. It calls it from
+/// inside `syncPumpEventsToInsulinDeliveryStore`, i.e. after the save AND after the doses have
+/// been pushed into the InsulinDeliveryStore — which on the phone is HealthKit-backed. So the
+/// single number the loan protocol has been logging as "write DONE Nms" is really
+/// Core Data + a HealthKit round trip, with no way to tell which half dominates.
+///
+/// That matters because the number is strongly bimodal in the field: most writes land under
+/// 600 ms, but there are clusters at 2.5-3.4 s and 13-23 s, and NEITHER dose count nor carb
+/// content predicts which you get (12 carb deletes wrote in 231 ms; a single dose took
+/// 18989 ms). The hand-back ack is gated on this write, so whatever dominates it also sets how
+/// long a loan takes to close — and a progress bar cannot be honest about a distribution whose
+/// shape we cannot attribute.
+///
+/// Same idiom as `G7RadioCensus.sink`: the framework emits a line, the app decides where it
+/// goes. nil (the default, and every non-Loop consumer of LoopKit) costs one optional check.
+public enum DoseStoreWriteCensus {
+    public static var sink: ((String) -> Void)?
+}
+
 public final class DoseStore {
     
     /// Notification posted when data was modifed.
@@ -758,8 +779,19 @@ extension DoseStore {
                 self.validateReservoirContinuity()
             }
 
+            // Split the two halves of this write — see DoseStoreWriteCensus.
+            let writeStarted = Date()
             self.persistenceController.save { (error) -> Void in
+                let saved = Date()
                 self.syncPumpEventsToInsulinDeliveryStore(resolveMutable: true) { _ in
+                    let synced = Date()
+                    DoseStoreWriteCensus.sink?(String(format:
+                        "addPumpEvents %d event(s) — coreData %.0fms + hkSync %.0fms = %.0fms total%@",
+                        events.count,
+                        saved.timeIntervalSince(writeStarted) * 1000,
+                        synced.timeIntervalSince(saved) * 1000,
+                        synced.timeIntervalSince(writeStarted) * 1000,
+                        error == nil ? "" : " (SAVE FAILED)"))
                     completion(DoseStoreError(error: error))
                     self.delegate?.doseStoreHasUpdatedPumpEventData(self)
                     NotificationCenter.default.post(name: DoseStore.valuesDidChange, object: self)
