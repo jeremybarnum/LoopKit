@@ -77,7 +77,10 @@ public final class PersistenceController {
 
     private var readyState: ReadyState = .waiting
 
-    func onReady(_ callback: @escaping ReadyCallback) {
+    /// Public so a test can block until the persistent store is actually attached.
+    /// The stack comes up asynchronously, and a query served before it does answers with ZERO
+    /// ROWS rather than failing — which reads as a data bug in whatever suite is running.
+    public func onReady(_ callback: @escaping ReadyCallback) {
         queue.async {
             switch self.readyState {
             case .waiting:
