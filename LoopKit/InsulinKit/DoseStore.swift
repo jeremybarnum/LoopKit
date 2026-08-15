@@ -887,7 +887,9 @@ extension DoseStore {
                 case .success:
                     completion(nil)
                     self.syncPumpEventsToInsulinDeliveryStore { error in
-                        completion(error)
+                        if let error = error {
+                            self.log.error("Error syncing pump events to insulin delivery store after addDoses: %{public}@", String(describing: error))
+                        }
                         NotificationCenter.default.post(name: DoseStore.valuesDidChange, object: self)
                     }
                 case .failure(let error):
