@@ -278,7 +278,6 @@ public struct StoredDosingDecisionData {
 
 public typealias HistoricalGlucoseValue = PredictedGlucoseValue
 
-public typealias EnactedTempBasal = TempBasalRecommendation
 
 public struct StoredDosingDecision: DosingDecision {
     public var id: UUID
