@@ -81,6 +81,20 @@ public struct StoredGlucoseSample: GlucoseSampleValue, Equatable {
 }
 
 extension StoredGlucoseSample {
+    /// [zombie-guard] Ported from the next-dev line (2026-08-29): the nil-safe twin of
+    /// `init(managedObject:)` for rows that may be GONE by read time — a deleted-fault's
+    /// properties all read nil and the non-optional Date/String bridges below trap.
+    /// Validate the raw stored attributes first; a nil in any means the row is dead.
+    init?(validatingManagedObject managedObject: CachedGlucoseObject) {
+        guard !managedObject.isDeleted, managedObject.managedObjectContext != nil,
+              managedObject.value(forKey: "startDate") is NSDate,
+              managedObject.value(forKey: "unitString") is NSString,
+              managedObject.value(forKey: "provenanceIdentifier") is NSString else {
+            return nil
+        }
+        self.init(managedObject: managedObject)
+    }
+
     init(managedObject: CachedGlucoseObject) {
         self.init(
             uuid: managedObject.uuid,

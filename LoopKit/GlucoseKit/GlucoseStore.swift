@@ -205,6 +205,17 @@ extension GlucoseStore: HealthKitSampleStoreDelegate {
                     // Add new samples
                     if let samples = added as? [HKQuantitySample] {
                         for sample in samples {
+                            // [zombie-guard] Ported from the next-dev line (LoopKit ee927fa,
+                            // 2026-08-25): a zombie HK sample whose underlying ObjC startDate or
+                            // quantity is nil traps Date._unconditionallyBridgeFromObjectiveC on
+                            // first property access, and the anchored query REDELIVERS it on every
+                            // launch — a permanent crash loop (4 symbolicated watch IPS files).
+                            // KVC-validate the raw fields before any bridge runs; skip, never trap.
+                            guard (sample as AnyObject).value(forKey: "startDate") as? NSDate != nil,
+                                  (sample as AnyObject).value(forKey: "quantity") is HKQuantity else {
+                                self.log.error("[zombie-guard] SKIPPING zombie HK sample (nil startDate/quantity would trap on bridge): %{public}@", sample.uuid.uuidString)
+                                continue
+                            }
                             if try self.addGlucoseSample(for: sample) {
                                 self.log.debug("Saved sample %@ into cache from HKAnchoredObjectQuery", sample.uuid.uuidString)
                                 changed = true
@@ -297,7 +308,7 @@ extension GlucoseStore {
 
         cacheStore.managedObjectContext.performAndWait {
             do {
-                samples = try self.getCachedGlucoseObjects(start: start, end: end).map { StoredGlucoseSample(managedObject: $0) }
+                samples = try self.validatedSamples(self.getCachedGlucoseObjects(start: start, end: end))
             } catch let coreDataError {
                 error = coreDataError
             }
@@ -308,6 +319,21 @@ extension GlucoseStore {
         }
 
         return .success(samples)
+    }
+
+
+    /// [zombie-guard] Ported from the next-dev line (2026-08-29): every
+    /// CachedGlucoseObject→StoredGlucoseSample conversion routes through here. A row deleted
+    /// between fetch and bridge (shouldDeleteInaccessibleFaults nils every property of such a
+    /// fault) must be SKIPPED, not bridged — the non-optional Date/String bridges trap on it,
+    /// and one such object produced a relaunch crash loop (~17 watch deaths in a day). Call on
+    /// the cache context's queue.
+    private func validatedSamples(_ objects: [CachedGlucoseObject]) -> [StoredGlucoseSample] {
+        let samples = objects.compactMap { StoredGlucoseSample(validatingManagedObject: $0) }
+        if samples.count != objects.count {
+            self.log.error("[zombie-guard] SKIPPED %d glucose row(s) whose backing rows were gone by bridge time (of %d fetched)", objects.count - samples.count, objects.count)
+        }
+        return samples
     }
 
     private func getCachedGlucoseObjects(start: Date? = nil, end: Date? = nil) throws -> [CachedGlucoseObject] {
@@ -340,7 +366,7 @@ extension GlucoseStore {
                 request.fetchLimit = 1
 
                 let objects = try self.cacheStore.managedObjectContext.fetch(request)
-                latestGlucose = objects.first.map { StoredGlucoseSample(managedObject: $0) }
+                latestGlucose = self.validatedSamples(objects).first
             } catch let error {
                 self.log.error("Unable to fetch latest glucose object: %@", String(describing: error))
             }
@@ -408,7 +434,7 @@ extension GlucoseStore {
                         return
                     }
 
-                    storedSamples = objects.map { StoredGlucoseSample(managedObject: $0) }
+                    storedSamples = self.validatedSamples(objects)
                 } catch let coreDataError {
                     error = coreDataError
                 }
@@ -530,7 +556,7 @@ extension GlucoseStore {
 
                 do {
                     let objects = try self.cacheStore.managedObjectContext.fetch(request)
-                    let samples = objects.map { StoredGlucoseSample(managedObject: $0) }
+                    let samples = self.validatedSamples(objects)
                     completion(.success(samples.first))
                 } catch let error {
                     self.log.error("Error in getLatestCGMGlucose: %@", String(describing: error))
@@ -553,7 +579,7 @@ extension GlucoseStore {
 
             self.cacheStore.managedObjectContext.performAndWait {
                 do {
-                    samples = try self.getCachedGlucoseObjects(start: start, end: end).map { StoredGlucoseSample(managedObject: $0) }
+                    samples = try self.validatedSamples(self.getCachedGlucoseObjects(start: start, end: end))
                 } catch let coreDataError {
                     error = coreDataError
                 }
@@ -812,7 +838,7 @@ extension GlucoseStore {
                     if let modificationCounter = stored.max(by: { $0.modificationCounter < $1.modificationCounter })?.modificationCounter {
                         queryAnchor.modificationCounter = modificationCounter
                     }
-                    queryResult.append(contentsOf: stored.compactMap { StoredGlucoseSample(managedObject: $0) })
+                    queryResult.append(contentsOf: self.validatedSamples(stored))
                 } catch let error {
                     queryError = error
                     return
