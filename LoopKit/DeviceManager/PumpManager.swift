@@ -298,6 +298,17 @@ public protocol PumpConnectionLendable: AnyObject {
     /// "reclaiming…" indicator) keys on this rather than on the loan flag clearing. Default:
     /// true — a manager that can't report readiness never appears stuck "reconnecting".
     var isConnectionReady: Bool { get }
+
+    /// One line describing whether (and via which paths) THIS device tried to contend for the
+    /// lent connection during a loan — the loan interlock's census, phone-readable. A lender
+    /// that quietly reconnects to a lent pod starves the borrower's radio (a connected pod
+    /// does not advertise), and the alarm for it must land in a log the phone side can
+    /// actually read. Default: "whileLoaned=n/a" (no interlock instrumentation).
+    var podLoanBleContentionDiagnostics: String { get }
+}
+
+public extension PumpConnectionLendable {
+    var podLoanBleContentionDiagnostics: String { "whileLoaned=n/a" }
 }
 
 extension PumpConnectionLendable {
