@@ -548,6 +548,8 @@
 		A9D3FF122A6C19ED000C891D /* ChartPointsContextFillLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D3FF112A6C19ED000C891D /* ChartPointsContextFillLayer.swift */; };
 		A9D3FF142A6C1A01000C891D /* ChartPointsScatterDownTrianglesLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D3FF132A6C1A01000C891D /* ChartPointsScatterDownTrianglesLayer.swift */; };
 		A9D3FF162A6C1A16000C891D /* ChartPointsTouchHighlightLayerViewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D3FF152A6C1A16000C891D /* ChartPointsTouchHighlightLayerViewCache.swift */; };
+		A9D3FF192A6C2C85000C891D /* PredictedGlucoseChartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D3FF182A6C2C85000C891D /* PredictedGlucoseChartTests.swift */; };
+		A9D3FF1B2A6C2CA9000C891D /* ChartAxisValuesStaticGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D3FF1A2A6C2CA9000C891D /* ChartAxisValuesStaticGeneratorTests.swift */; };
 		A9D3FF1D2A6C307E000C891D /* SwiftCharts in Frameworks */ = {isa = PBXBuildFile; productRef = A9D3FF1C2A6C307E000C891D /* SwiftCharts */; };
 		A9D3FF1F2A6C307E000C891D /* SwiftCharts in Embed Frameworks */ = {isa = PBXBuildFile; productRef = A9D3FF1C2A6C307E000C891D /* SwiftCharts */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A9DCF2CA25B0F38000C89088 /* LoopUIColorPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DCF2C925B0F38000C89088 /* LoopUIColorPalette.swift */; };
@@ -4208,6 +4210,8 @@
 				1D0E708526BDE3BB00AECF0D /* HKDeviceCodableTests.swift in Sources */,
 				43D9888D1C87EBE400DA4467 /* LoopMathTests.swift in Sources */,
 				A9DF02D324F762DC00B7C988 /* CarbStoreTests.swift in Sources */,
+				A9D3FF1B2A6C2CA9000C891D /* ChartAxisValuesStaticGeneratorTests.swift in Sources */,
+				A9D3FF192A6C2C85000C891D /* PredictedGlucoseChartTests.swift in Sources */,
 				437874B5202FDD1200A3D8B9 /* DoseStoreTests.swift in Sources */,
 				A985465125144ABA0099C1A6 /* NotificationSettingsTests.swift in Sources */,
 				B455F4DF2600E0A8000ED456 /* GlucoseRangeTests.swift in Sources */,
