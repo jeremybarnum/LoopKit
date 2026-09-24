@@ -312,11 +312,18 @@ public protocol PumpConnectionLendable: AnyObject {
     /// believes it is the sole controller, it means someone else drove the device.
     /// Default: nil (no such telemetry).
     var podLoanLastForeignSessionAt: Date? { get }
+
+    /// True while a command to the device is queued or awaiting its reply. Releasing the
+    /// connection then cuts the reply off and leaves the command unacknowledged — delivery
+    /// uncertain until the next status read. A lender waits for this to clear before it
+    /// releases. Default: false (no command queue to report).
+    var isDeviceCommandInFlight: Bool { get }
 }
 
 public extension PumpConnectionLendable {
     var podLoanBleContentionDiagnostics: String { "whileLoaned=n/a" }
     var podLoanLastForeignSessionAt: Date? { nil }
+    var isDeviceCommandInFlight: Bool { false }
 }
 
 extension PumpConnectionLendable {
