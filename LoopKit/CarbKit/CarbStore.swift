@@ -606,7 +606,7 @@ extension CarbStore {
         }
     }
 
-    /// FORK ADDITION (Sport Mode R30/#89, 2026-08-08): `deleteCarbEntry` minus EVERY
+    /// FORK ADDITION (Sport Mode R30/#89): `deleteCarbEntry` minus EVERY
     /// authorship gate, for a store that is an authoritative MIRROR of another device's.
     ///
     /// During a pod loan the watch's carb store is wipe-then-replaced from the phone at every
