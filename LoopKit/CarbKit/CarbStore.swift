@@ -627,8 +627,7 @@ extension CarbStore {
     /// app never wrote.
     ///
     /// `diagnostics` reports which lookup stage matched and the candidate count at each stage,
-    /// so a field failure names its cause in one log line (Jeremy 2026-08-08: "add as much
-    /// instrumentation as you think you need, so we don't have to do 10 releases").
+    /// so a field failure names its cause in one log line.
     public func deleteCarbEntrySkippingAuthorshipCheck(_ oldEntry: StoredCarbEntry, completion: @escaping (_ result: Result<Bool, Error>, _ diagnostics: String) -> Void) {
         queue.async {
             var error: CarbStoreError?
