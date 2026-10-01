@@ -2,10 +2,8 @@
 //  EnactedTempBasal.swift
 //  LoopKit
 //
-//  Extracted from DosingDecisionStore so that a target without the dosing-decision store —
-//  a watch running a loan, for instance — can still name the temp basal a pump is currently
-//  delivering. The alias is what `TempBasalRecommendation.adjustForCurrentDelivery` speaks in,
-//  and that comparison is needed anywhere doses are enacted, not only where they are recorded.
+//  Moved out of DosingDecisionStore so a target without that store can still name the temp
+//  basal a pump is delivering.
 //
 
 import Foundation

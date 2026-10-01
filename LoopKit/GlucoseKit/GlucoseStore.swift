@@ -170,17 +170,8 @@ extension GlucoseStore: HealthKitSampleStoreDelegate {
                     // Add new samples
                     if let samples = added as? [HKQuantitySample] {
                         for sample in samples {
-                            // ZOMBIE-SAMPLE GUARD (field 2026-08-25, watchOS 26.6): HealthKit
-                            // delivered a sample whose underlying ObjC startDate was NIL.
-                            // Bridging it to Swift's non-optional Date traps
-                            // (Date._unconditionallyBridgeFromObjectiveC, EXC_BREAKPOINT), and
-                            // because the query anchor only advances on SUCCESSFUL processing,
-                            // the same sample re-delivered on every relaunch — a crash loop
-                            // that silently killed the watch app 7+ times across three days
-                            // (~1 s after launch, no app-container crash log; the reports were
-                            // in the phone's Analytics). KVC returns the raw value un-bridged,
-                            // so it can say "nil" without dying; skip the zombie loudly and
-                            // let the anchor advance past it.
+                            // A sample with a nil startDate traps when bridged and, as the anchor
+                            // never advances past it, crashes every launch; skip it.
 #if os(watchOS)
                             guard (sample as AnyObject).value(forKey: "startDate") as? NSDate != nil,
                                   (sample as AnyObject).value(forKey: "quantity") is HKQuantity else {
@@ -253,11 +244,8 @@ extension GlucoseStore {
         }
     }
 
-    /// Every CachedGlucoseObject→StoredGlucoseSample conversion routes through here:
-    /// a row deleted between fetch and bridge (shouldDeleteInaccessibleFaults nils every
-    /// property) must be SKIPPED, not bridged — the non-optional Date/String bridges trap
-    /// on it, and one such object killed the watch ~17 times in a day (2026-08-29; the
-    /// no-CGM bench config makes the launch purge race hot). Call on the context's queue.
+    /// Skips rows deleted between fetch and bridge, whose nil properties would trap.
+    /// Call on the context's queue.
     private func validatedSamples(_ objects: [CachedGlucoseObject]) -> [StoredGlucoseSample] {
 #if os(watchOS)
         let samples = objects.compactMap { StoredGlucoseSample(validatingManagedObject: $0) }

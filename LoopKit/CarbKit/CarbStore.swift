@@ -398,23 +398,8 @@ extension CarbStore {
         }
     }
 
-    /// Adds a carb entry with a CALLER-SUPPLIED sync identifier, inserting only if absent.
-    ///
-    /// For records AUTHORED ELSEWHERE and delivered over an at-least-once transport — the watch
-    /// loan's hand-back is the only caller today. `addCarbEntry(_:completion:)` mints a fresh
-    /// identity per call because it IS the authoring point; calling it from a delivery path turns
-    /// every redelivery into a new entry (2026-08-12: twelve copies of one confirmed 10 g entry,
-    /// 120 g of phantom COB). This variant makes the STORE the idempotency point: the lookup and
-    /// the insert run in one operation on the store's own serial queue, so concurrent
-    /// redeliveries cannot interleave between check and insert — which no caller-side guard can
-    /// promise. The store already practices this pattern for its other external source
-    /// (HealthKit ingestion, `addCarbEntry(for sample:)` above dedupes on the same identity
-    /// pair); this exposes it for a second one.
-    ///
-    /// INSERT-IF-ABSENT, never upsert: a redelivery must lose to any later local edit of the
-    /// same entry (edits keep this identity and bump syncVersion). On a hit the CURRENT stored
-    /// entry is returned unchanged, whatever its content — and a content mismatch against the
-    /// request is logged, because same-identity-different-content means a caller bug.
+    /// Adds a carb entry authored elsewhere under its own sync identifier, only if absent, so a
+    /// redelivered record is stored once; on a hit the stored entry is returned unchanged.
     public func addCarbEntry(_ entry: NewCarbEntry, syncIdentifier: String, completion: @escaping (_ result: Result<StoredCarbEntry, Error>) -> Void) {
         queue.async {
             var result: Result<StoredCarbEntry, Error>?
@@ -606,28 +591,8 @@ extension CarbStore {
         }
     }
 
-    /// `deleteCarbEntry` minus EVERY
-    /// authorship gate, for a store that is an authoritative MIRROR of another device's.
-    ///
-    /// During a pod loan the watch's carb store is wipe-then-replaced from the phone at every
-    /// takeover, and the seeded entries are (honestly) marked `createdByCurrentApp: false` with
-    /// `uuid: nil`. Authorship gates the public door in TWO places, and the first fix (build
-    /// 260) only cleared the first: the method guard (`unauthorized`, field 22:39) — after
-    /// which the delete died in `cachedCarbObjectFromStoredCarbEntry`, whose OWN
-    /// `createdByCurrentApp` guard + `createdByCurrentApp == YES` predicate + uuid-requiring
-    /// fallback returned nil for every seeded entry (`noData`, field 23:28). So this method
-    /// does its own lookup with no authorship anywhere: syncIdentifier first (any authorship,
-    /// any syncVersion — seeded objects may carry a nil version), then (startDate ±1s,
-    /// grams ±0.01) for entries with no shared identity.
-    ///
-    /// On a mirror, "authorship" is an artifact of the seeding path, not an ownership
-    /// boundary; the REAL owner receives the deletion via the loan journal and applies it
-    /// through its own guarded door. The HealthKit tail is safe: seeded objects carry
-    /// `uuid: nil`, so `deleteObjectFromHealthKit` no-ops rather than touching a sample this
-    /// app never wrote.
-    ///
-    /// `diagnostics` reports which lookup stage matched and the candidate count at each stage,
-    /// so a field failure names its cause in one log line.
+    /// `deleteCarbEntry` without the authorship checks, for a store that mirrors another device's
+    /// entries; `diagnostics` names the lookup stage that matched.
     public func deleteCarbEntrySkippingAuthorshipCheck(_ oldEntry: StoredCarbEntry, completion: @escaping (_ result: Result<Bool, Error>, _ diagnostics: String) -> Void) {
         queue.async {
             var error: CarbStoreError?
@@ -1299,15 +1264,8 @@ fileprivate extension NSManagedObjectContext {
         }
     }
 
-    /// The lookup behind
-    /// `deleteCarbEntrySkippingAuthorshipCheck` — no authorship predicate anywhere, because on
-    /// a mirror store the seeded objects are createdByCurrentApp:false / uuid:nil by design and
-    /// the stock lookup below returns nil for all of them (field 2026-08-08 23:28, `noData`).
-    ///
-    /// Stage 1 matches the phone's syncIdentifier (carried through the grant; syncVersion is
-    /// deliberately NOT required — seeded objects may hold nil). Stage 2 matches
-    /// (startDate ±1s, grams ±0.01) for entries with no shared identity (watch-entered).
-    /// `diagnostics` records the stage counts so a miss names itself in one log line.
+    /// Finds an entry by sync identifier, else by start date and grams, regardless of which app
+    /// created it.
     func cachedCarbObjectIgnoringAuthorship(forSyncIdentifier syncIdentifier: String?, startDate: Date, grams: Double, diagnostics: inout String) throws -> CachedCarbObject? {
         if let syncIdentifier = syncIdentifier {
             let request: NSFetchRequest<CachedCarbObject> = CachedCarbObject.fetchRequest()
