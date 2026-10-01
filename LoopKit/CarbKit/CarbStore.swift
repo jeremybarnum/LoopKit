@@ -398,7 +398,7 @@ extension CarbStore {
         }
     }
 
-    /// Adds a carb entry with a CALLER-SUPPLIED sync identifier, inserting only if absent (R36).
+    /// Adds a carb entry with a CALLER-SUPPLIED sync identifier, inserting only if absent.
     ///
     /// For records AUTHORED ELSEWHERE and delivered over an at-least-once transport — the watch
     /// loan's hand-back is the only caller today. `addCarbEntry(_:completion:)` mints a fresh
@@ -606,7 +606,7 @@ extension CarbStore {
         }
     }
 
-    /// FORK ADDITION (Sport Mode R30/#89): `deleteCarbEntry` minus EVERY
+    /// `deleteCarbEntry` minus EVERY
     /// authorship gate, for a store that is an authoritative MIRROR of another device's.
     ///
     /// During a pod loan the watch's carb store is wipe-then-replaced from the phone at every
@@ -1299,7 +1299,7 @@ fileprivate extension NSManagedObjectContext {
         }
     }
 
-    /// FORK ADDITION (Sport Mode R30/#89): the lookup behind
+    /// The lookup behind
     /// `deleteCarbEntrySkippingAuthorshipCheck` — no authorship predicate anywhere, because on
     /// a mirror store the seeded objects are createdByCurrentApp:false / uuid:nil by design and
     /// the stock lookup below returns nil for all of them (field 2026-08-08 23:28, `noData`).
