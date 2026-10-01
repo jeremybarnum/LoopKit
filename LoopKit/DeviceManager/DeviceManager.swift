@@ -40,6 +40,14 @@ public protocol DeviceManager: CustomDebugStringConvertible, AlertResponder, Ale
     
     /// Is the device inoperable (e.g., in a failure state, expired, etc.)
     var isInoperable: Bool { get }
+
+    /// Why the device is inoperable, rendered by the kit for display (e.g. its fault alarm's
+    /// title). Default: nil.
+    var localizedInoperableDescription: String? { get }
+}
+
+public extension DeviceManager {
+    var localizedInoperableDescription: String? { nil }
 }
 
 // MARK: - Sharing a device with another controller
