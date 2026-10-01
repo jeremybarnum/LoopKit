@@ -124,6 +124,10 @@ public protocol ExclusiveDeviceControl: DeviceConfigurationSharing {
     /// Default: false.
     var takeControlNeedsSearch: Bool { get }
 
+    /// The same question asked of an export before adopting it: would this controller have to
+    /// find the device first? Default: false.
+    static func takeControlNeedsSearch(adopting configuration: SharedDeviceConfiguration) -> Bool
+
     /// The last take failed in a way only a reset of the host's radio clears. Default: false.
     var hostRadioNeedsReset: Bool { get }
 }
@@ -134,6 +138,7 @@ public extension ExclusiveDeviceControl {
     func connectionDiagnostics() -> String? { nil }
     var lastForeignSessionAt: Date? { nil }
     var takeControlNeedsSearch: Bool { false }
+    static func takeControlNeedsSearch(adopting configuration: SharedDeviceConfiguration) -> Bool { false }
     var hostRadioNeedsReset: Bool { false }
 }
 
