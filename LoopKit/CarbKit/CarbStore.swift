@@ -207,6 +207,7 @@ public final class CarbStore {
         overrideHistory: TemporaryScheduleOverrideHistory? = nil,
         syncVersion: Int = 1,
         absorptionTimeOverrun: Double = CarbMath.defaultAbsorptionTimeOverrun,
+        expectedAbsorptionTimeOverrun: Double? = nil,
         calculationDelta: TimeInterval = GlucoseMath.defaultDelta,
         effectDelay: TimeInterval = CarbMath.defaultEffectDelay,
         carbAbsorptionModel: CarbAbsorptionModel = .nonlinear,
@@ -230,12 +231,18 @@ public final class CarbStore {
 
         healthKitSampleStore?.delegate = self
         
+        // The factor applied to the entered absorption time for the curve carbs are EXPECTED to follow,
+        // separate from `absorptionTimeOverrun`, which sets the minimum absorption rate. Not given:
+        // the same as `absorptionTimeOverrun`, as before. Never longer than the minimum-rate time,
+        // or the minimum would overtake the expectation from the start.
+        let expectedOverrun = min(expectedAbsorptionTimeOverrun ?? absorptionTimeOverrun, absorptionTimeOverrun)
+
         // Carb model settings based on the selected absorption model
         switch self.carbAbsorptionModel {
         case .linear:
-            self.settings = CarbModelSettings(absorptionModel: LinearAbsorption(), initialAbsorptionTimeOverrun: absorptionTimeOverrun, adaptiveAbsorptionRateEnabled: false)
+            self.settings = CarbModelSettings(absorptionModel: LinearAbsorption(), initialAbsorptionTimeOverrun: expectedOverrun, adaptiveAbsorptionRateEnabled: false)
         case .nonlinear:
-            self.settings = CarbModelSettings(absorptionModel: PiecewiseLinearAbsorption(), initialAbsorptionTimeOverrun: absorptionTimeOverrun, adaptiveAbsorptionRateEnabled: false)
+            self.settings = CarbModelSettings(absorptionModel: PiecewiseLinearAbsorption(), initialAbsorptionTimeOverrun: expectedOverrun, adaptiveAbsorptionRateEnabled: false)
         case .adaptiveRateNonlinear:
             self.settings = CarbModelSettings(absorptionModel: PiecewiseLinearAbsorption(), initialAbsorptionTimeOverrun: 1.0, adaptiveAbsorptionRateEnabled: true, adaptiveRateStandbyIntervalFraction: 0.2)
         }
@@ -1571,6 +1578,7 @@ extension CarbStore {
                 "* delay: \(self.delay)",
                 "* delta: \(self.delta)",
                 "* absorptionTimeOverrun: \(self.absorptionTimeOverrun)",
+                "* expectedAbsorptionTimeOverrun: \(self.settings.initialAbsorptionTimeOverrun)",
                 "* carbAbsorptionModel: \(carbAbsorptionModel)",
                 "* Carb absorption model settings: \(self.settings)",
                 "* HealthKit Sample Store: \(self.hkSampleStore?.debugDescription ?? "nil")",
