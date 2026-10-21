@@ -1277,6 +1277,34 @@ extension CarbStore {
         endingAt end: Date? = nil,
         effectVelocities: [GlucoseEffectVelocity]
     ) throws -> [GlucoseEffect] {
+        try glucoseEffects(of: samples, startingAt: start, endingAt: end, effectVelocities: effectVelocities,
+                           initialAbsorptionTimeOverrun: settings.initialAbsorptionTimeOverrun)
+    }
+
+    /// The same timeline with each entry's carbs expected on the absorption time the user entered,
+    /// exactly: what the user expected, for a comparison with what arrived (the predicted-low
+    /// warning). The store's own expectation, which dosing follows, may stretch the entered time by
+    /// `expectedAbsorptionTimeOverrun`; this ignores that on purpose.
+    ///
+    /// NOT A SETTING. The 1.0 below is not a value to tune: it is the multiplier that leaves the
+    /// entered time as entered, so the dosing code can be reused rather than copied.
+    public func glucoseEffectsOnEnteredAbsorptionTimes<Sample: CarbEntry>(
+        of samples: [Sample],
+        startingAt start: Date,
+        endingAt end: Date? = nil,
+        effectVelocities: [GlucoseEffectVelocity]
+    ) throws -> [GlucoseEffect] {
+        try glucoseEffects(of: samples, startingAt: start, endingAt: end, effectVelocities: effectVelocities,
+                           initialAbsorptionTimeOverrun: 1.0)
+    }
+
+    private func glucoseEffects<Sample: CarbEntry>(
+        of samples: [Sample],
+        startingAt start: Date,
+        endingAt end: Date?,
+        effectVelocities: [GlucoseEffectVelocity],
+        initialAbsorptionTimeOverrun: Double
+    ) throws -> [GlucoseEffect] {
 
         guard samples.count > 0 else {
             return []
@@ -1299,7 +1327,7 @@ extension CarbStore {
             absorptionTimeOverrun: absorptionTimeOverrun,
             defaultAbsorptionTime: defaultAbsorptionTimes.medium,
             delay: delay,
-            initialAbsorptionTimeOverrun: settings.initialAbsorptionTimeOverrun,
+            initialAbsorptionTimeOverrun: initialAbsorptionTimeOverrun,
             absorptionModel: settings.absorptionModel,
             adaptiveAbsorptionRateEnabled: settings.adaptiveAbsorptionRateEnabled,
             adaptiveRateStandbyIntervalFraction: settings.adaptiveRateStandbyIntervalFraction
