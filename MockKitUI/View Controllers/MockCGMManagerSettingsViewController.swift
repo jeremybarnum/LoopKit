@@ -8,7 +8,6 @@
 
 import UIKit
 import Combine
-import LoopAlgorithm
 import LoopKit
 import LoopKitUI
 import LoopTestingKit
@@ -450,10 +449,9 @@ final class MockCGMManagerSettingsViewController: UITableViewController {
                 cell.onToggle = { [weak self] isOn in
                     let confirmVC = UIAlertController(cgmDeletionHandler: {
                         self?.cgmManager.healthKitStorageDelayEnabled = isOn
-                        self?.cgmManager.notifyDelegateOfDeletion {
-                            DispatchQueue.main.async {
-                                self?.done()
-                            }
+                        Task {
+                            await self?.cgmManager.delete()
+                            self?.done()
                         }
                     }, cancelHandler: { cell.switch?.isOn = self?.cgmManager.healthKitStorageDelayEnabled ?? false })
 
@@ -659,10 +657,9 @@ final class MockCGMManagerSettingsViewController: UITableViewController {
             return
         case .deleteCGM:
             let confirmVC = UIAlertController(cgmDeletionHandler: {
-                self.cgmManager.notifyDelegateOfDeletion {
-                    DispatchQueue.main.async {
-                        self.done()
-                    }
+                Task {
+                    await self.cgmManager.delete()
+                    self.done()
                 }
             })
 

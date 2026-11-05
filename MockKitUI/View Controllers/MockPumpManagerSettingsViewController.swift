@@ -12,7 +12,6 @@ import LoopKit
 import LoopKitUI
 import MockKit
 import SwiftUI
-import LoopAlgorithm
 
 
 final class MockPumpManagerSettingsViewController: UITableViewController {
@@ -430,10 +429,9 @@ final class MockPumpManagerSettingsViewController: UITableViewController {
             show(vc, sender: sender)
         case .deletePump:
             let confirmVC = UIAlertController(pumpDeletionHandler: {
-                self.pumpManager.notifyDelegateOfDeactivation {
-                    DispatchQueue.main.async {
-                        self.done()
-                    }
+                Task {
+                    await self.pumpManager.delete()
+                    self.done()
                 }
             })
 

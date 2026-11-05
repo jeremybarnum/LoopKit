@@ -51,8 +51,8 @@ extension CGMManagerStatus: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.hasValidSensorSession = try container.decode(Bool.self, forKey: .hasValidSensorSession)
-        self.inSensorWarmup = try container.decode(Bool.self, forKey: .inSensorWarmup)
-        self.isInoperable = try container.decode(Bool.self, forKey: .isInoperable)
+        self.inSensorWarmup = try container.decodeIfPresent(Bool.self, forKey: .inSensorWarmup) ?? false
+        self.isInoperable = try container.decodeIfPresent(Bool.self, forKey: .isInoperable) ?? false
         self.lastCommunicationDate = try container.decodeIfPresent(Date.self, forKey: .lastCommunicationDate)
         self.device = try container.decodeIfPresent(CodableDevice.self, forKey: .device)?.device
     }
@@ -120,6 +120,16 @@ public protocol CGMManagerDelegate: DeviceManagerDelegate, CGMManagerStatusObser
     /// - Parameter manager: The manager instance
     /// - Returns: The unique prefix for the credential store
     func credentialStoragePrefix(for manager: CGMManager) -> String
+
+    /// Asks the delegate whether the app can read the CGM directly on Apple Watch
+    ///
+    /// - Parameter manager: The manager instance
+    /// - Returns: true if the app's watch app can read the sensor itself
+    func supportsWatchDirectRead(for manager: CGMManager) -> Bool
+}
+
+public extension CGMManagerDelegate {
+    func supportsWatchDirectRead(for manager: CGMManager) -> Bool { false }
 }
 
 
@@ -186,10 +196,11 @@ public protocol CGMManager: DeviceManager {
     /// - Parameter observer: The observing object
     func removeStatusObserver(_ observer: CGMManagerStatusObserver)
 
-    /// Requests that the manager completes its deletion process
+    /// Tears the manager down and asks its delegate to remove it. Returns once the delegate has removed it.
     ///
-    /// - Parameter completion: Action to take after the CGM manager is deleted
-    func delete(completion: @escaping () -> Void)
+    /// Implementations that tear down first should finish that teardown, including awaiting any alert
+    /// retractions, before awaiting `cgmManagerDelegate?.cgmManagerWantsDeletion(self)`.
+    func delete() async
 }
 
 public extension CGMManager {
@@ -224,19 +235,6 @@ public extension CGMManager {
     /// Default is no delay to store samples in HealthKit
     static var healthKitStorageDelay: TimeInterval { 0 }
 
-    /// Convenience wrapper for notifying the delegate of deletion on the delegate queue
-    ///
-    /// - Parameters:
-    ///   - completion: A closure called from the delegate queue after the delegate is called
-    func notifyDelegateOfDeletion(completion: @escaping () -> Void) {
-        delegateQueue.async {
-            Task {
-                await self.cgmManagerDelegate?.cgmManagerWantsDeletion(self)
-                completion()
-            }
-        }
-    }
-    
     func addStatusObserver(_ observer: CGMManagerStatusObserver, queue: DispatchQueue) {
         // optional since a CGM manager may not support status observers
     }
@@ -246,7 +244,7 @@ public extension CGMManager {
     }
 
     /// Override this default behaviour if the CGM Manager needs to complete tasks before being deleted
-    func delete(completion: @escaping () -> Void) {
-        notifyDelegateOfDeletion(completion: completion)
+    func delete() async {
+        await cgmManagerDelegate?.cgmManagerWantsDeletion(self)
     }
 }
