@@ -31,8 +31,8 @@ public class COBChart: ChartProviding {
         )
     }
 
-    /// Ranges about carbs on board ahead, widest first, each a low and a high series on the same dates: drawn as fills
-    /// over the area, so where they overlap reads darker. The highs count toward the scale, so a range is never cut off.
+    /// Ranges about carbs on board, widest first, each a low and a high series on the same dates: drawn as fills in
+    /// place of the area under the line, so where they overlap reads darker. The highs count toward the scale, so a range is never cut off.
     public private(set) var cobRanges: [(low: [ChartPoint], high: [ChartPoint])] = []
 
     public private(set) var endDate: Date?
@@ -90,7 +90,8 @@ public extension COBChart {
             xAxisLayer,
             yAxisLayer,
             cobChartCache?.highlightLayer,
-            cobArea,
+            // PRODUCTION: with ranges shown, the line alone over them; the solid area would hide their lower half.
+            cobRangesLayer == nil ? cobArea : nil,
             cobRangesLayer,
             cobLine
         ]
