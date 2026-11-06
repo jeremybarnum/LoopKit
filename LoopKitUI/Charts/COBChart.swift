@@ -31,6 +31,10 @@ public class COBChart: ChartProviding {
         )
     }
 
+    /// Ranges about carbs on board ahead, widest first, each a low and a high series on the same dates: drawn as fills
+    /// over the area, so where they overlap reads darker. The highs count toward the scale, so a range is never cut off.
+    public private(set) var cobRanges: [(low: [ChartPoint], high: [ChartPoint])] = []
+
     public private(set) var endDate: Date?
 
     private var cobChartCache: ChartPointsTouchHighlightLayerViewCache?
@@ -39,12 +43,13 @@ public class COBChart: ChartProviding {
 public extension COBChart {
     func didReceiveMemoryWarning() {
         cobPoints = []
+        cobRanges = []
         cobChartCache = nil
     }
 
     func generate(withFrame frame: CGRect, xAxisModel: ChartAxisModel, xAxisValues: [ChartAxisValue], axisLabelSettings: ChartLabelSettings, guideLinesLayerSettings: ChartGuideLinesLayerSettings, colors: ChartColorPalette, chartSettings: ChartSettings, labelsWidthY: CGFloat, gestureRecognizer: UIGestureRecognizer?, traitCollection: UITraitCollection, highlightLabelOffsetY: CGFloat = 0) -> Chart
     {
-        let yAxisValues = ChartAxisValuesStaticGenerator.generateYAxisValuesWithChartPoints(cobPoints + cobDisplayRangePoints, minSegmentCount: 2, maxSegmentCount: 3, multiple: 10, axisValueGenerator: { ChartAxisValueDouble($0, labelSettings: axisLabelSettings) }, addPaddingSegmentIfEdge: false)
+        let yAxisValues = ChartAxisValuesStaticGenerator.generateYAxisValuesWithChartPoints(cobPoints + cobRanges.flatMap(\.high) + cobDisplayRangePoints, minSegmentCount: 2, maxSegmentCount: 3, multiple: 10, axisValueGenerator: { ChartAxisValueDouble($0, labelSettings: axisLabelSettings) }, addPaddingSegmentIfEdge: false)
 
         let yAxisModel = ChartAxisModel(axisValues: yAxisValues, lineColor: colors.axisLine, labelSpaceReservationMode: .fixed(labelsWidthY))
 
@@ -57,6 +62,11 @@ public extension COBChart {
         let cobLine = ChartPointsLineLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, lineModels: [lineModel])
 
         let cobArea = ChartPointsFillsLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, fills: [ChartPointsFill(chartPoints: cobPoints, fillColor: colors.carbTint.withAlphaComponent(0.5))])
+
+        let rangeFills = cobRanges.filter { $0.low.count > 1 && $0.low.count == $0.high.count }.map {
+            ChartPointsFill(chartPoints: $0.low + $0.high.reversed(), fillColor: colors.carbTint.withAlphaComponent(0.2), createContainerPoints: false)
+        }
+        let cobRangesLayer: ChartLayer? = rangeFills.isEmpty ? nil : ChartPointsFillsLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, fills: rangeFills)
 
         // Grid lines
         let gridLayer = ChartGuideLinesForValuesLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, settings: guideLinesLayerSettings, axisValuesX: Array(xAxisValues.dropFirst().dropLast()), axisValuesY: yAxisValues)
@@ -81,6 +91,7 @@ public extension COBChart {
             yAxisLayer,
             cobChartCache?.highlightLayer,
             cobArea,
+            cobRangesLayer,
             cobLine
         ]
 
@@ -102,5 +113,15 @@ public extension COBChart {
                 y: ChartAxisValueDoubleUnit($0.quantity.doubleValue(for: unit), unitString: unitString, formatter: integerFormatter)
             )
         }
+    }
+
+    /// Ranges about carbs on board ahead, widest first; empty for none.
+    func setCOBRanges(_ ranges: [(low: [CarbValue], high: [CarbValue])]) {
+        let dateFormatter = DateFormatter(timeStyle: .short)
+        func points(_ values: [CarbValue]) -> [ChartPoint] {
+            values.map { ChartPoint(x: ChartAxisValueDate(date: $0.startDate, formatter: dateFormatter),
+                                    y: ChartAxisValueDouble($0.quantity.doubleValue(for: .gram))) }
+        }
+        cobRanges = ranges.map { (low: points($0.low), high: points($0.high)) }
     }
 }

@@ -35,6 +35,10 @@ public class PredictedGlucoseChart: GlucoseChart, ChartProviding {
     /// The chart points for the forecast a low guard checks, drawn dotted
     public private(set) var guardPredictedGlucosePoints: [ChartPoint]?
 
+    /// Ranges about the prediction, widest first, each a low and a high series on the same dates: drawn as fills under
+    /// the line, so where they overlap reads darker. Clamped as the prediction is, and counted in the scale like it.
+    public private(set) var predictedGlucoseRanges: [(low: [ChartPoint], high: [ChartPoint])] = []
+
     public var targetGlucoseSchedule: GlucoseRangeSchedule? {
         didSet {
             targetGlucosePoints = []
@@ -80,6 +84,7 @@ extension PredictedGlucoseChart {
         predictedGlucosePoints = []
         alternatePredictedGlucosePoints = nil
         guardPredictedGlucosePoints = nil
+        predictedGlucoseRanges = []
         targetGlucosePoints = [TargetChartBar]()
 
         glucoseChartCache = nil
@@ -124,6 +129,20 @@ extension PredictedGlucoseChart {
             yAxis: yAxisLayer.axis,
             fills: fills
         )
+
+        var predictionRanges: ChartLayer?
+        if let bottom = yAxisValues.first?.scalar, let top = yAxisValues.last?.scalar {
+            func clipped(_ points: [ChartPoint]) -> [ChartPoint] {
+                points.map { ChartPoint(x: $0.x, y: ChartAxisValueDouble(min(max($0.y.scalar, bottom), top))) }
+            }
+            let rangeFills = predictedGlucoseRanges.filter { $0.low.count > 1 && $0.low.count == $0.high.count }.map {
+                ChartPointsFill(chartPoints: clipped($0.low) + clipped($0.high).reversed(),
+                                fillColor: colors.glucoseTint.withAlphaComponent(0.15), createContainerPoints: false)
+            }
+            if !rangeFills.isEmpty {
+                predictionRanges = ChartPointsFillsLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, fills: rangeFills)
+            }
+        }
 
         // Grid lines
         let gridLayer = ChartGuideLinesForValuesLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, settings: guideLinesLayerSettings, axisValuesX: Array(xAxisValues.dropFirst().dropLast()), axisValuesY: yAxisValues)
@@ -180,6 +199,7 @@ extension PredictedGlucoseChart {
             xAxisLayer,
             yAxisLayer,
             glucoseChartCache?.highlightLayer,
+            predictionRanges,
             guardPrediction,
             prediction,
             alternatePrediction,
@@ -197,6 +217,7 @@ extension PredictedGlucoseChart {
     private func determineYAxisValues(axisLabelSettings: ChartLabelSettings? = nil) -> [ChartAxisValue] {
         let points = [
             glucosePoints, predictedGlucosePoints, guardPredictedGlucosePoints ?? [],
+            predictedGlucoseRanges.flatMap { $0.low + $0.high },
             targetGlucosePoints.flatMap { $0.points },
             glucoseDisplayRangePoints
         ].flatMap { $0 }
@@ -240,6 +261,13 @@ extension PredictedGlucoseChart {
 
     public func setGuardPredictedGlucoseValues(_ glucoseValues: [GlucoseValue]) {
         guardPredictedGlucosePoints = glucosePointsFromValues(clampPredictedGlucoseValues(glucoseValues))
+    }
+
+    /// Ranges about the prediction, widest first; empty for none.
+    public func setPredictedGlucoseRanges(_ ranges: [(low: [GlucoseValue], high: [GlucoseValue])]) {
+        predictedGlucoseRanges = ranges.map {
+            (low: glucosePointsFromValues(clampPredictedGlucoseValues($0.low)), high: glucosePointsFromValues(clampPredictedGlucoseValues($0.high)))
+        }
     }
 }
 
