@@ -107,7 +107,8 @@ extension PredictedGlucoseChart {
         let (xAxisLayer, yAxisLayer, innerFrame) = (coordsSpace.xAxisLayer, coordsSpace.yAxisLayer, coordsSpace.chartInnerFrame)
 
         // The glucose targets
-        let targetFill = colors.glucoseTint.withAlphaComponent(0.2)
+        // PRODUCTION: the correction range in grey, apart from the prediction's blue range.
+        let targetFill = UIColor.systemGray.withAlphaComponent(0.2)
         let overrideFill: UIColor = colors.presetTint.withAlphaComponent(0.6)
         let fills =
             targetGlucosePoints.map {
