@@ -201,11 +201,26 @@ public protocol CGMManager: DeviceManager {
     /// a small display; nil for nothing. Changes are reported to status observers.
     var shortStatusNote: String? { get }
 
+    /// For a manager built from another controller's export (a watch reading the sensor for itself): what
+    /// it still needs before it can read the sensor on its own; nil when nothing, or for any other manager.
+    /// Changes are reported to status observers.
+    var directReadNeed: CGMDirectReadNeed? { get }
+
     /// Tears the manager down and asks its delegate to remove it. Returns once the delegate has removed it.
     ///
     /// Implementations that tear down first should finish that teardown, including awaiting any alert
     /// retractions, before awaiting `cgmManagerDelegate?.cgmManagerWantsDeletion(self)`.
     func delete() async
+}
+
+/// What a manager reading the sensor for another controller (a watch) still needs from the user.
+public enum CGMDirectReadNeed: Equatable {
+    /// No pairing code for the sensor.
+    case pairingCode
+    /// The sensor did not accept the pairing code.
+    case pairingCodeRejected
+    /// A code, and no connection to the sensor yet.
+    case firstConnection
 }
 
 public extension CGMManager {
@@ -251,6 +266,8 @@ public extension CGMManager {
     var isSearchingForSensor: Bool { false }
 
     var shortStatusNote: String? { nil }
+
+    var directReadNeed: CGMDirectReadNeed? { nil }
 
     /// Override this default behaviour if the CGM Manager needs to complete tasks before being deleted
     func delete() async {
