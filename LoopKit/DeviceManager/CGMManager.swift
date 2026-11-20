@@ -221,6 +221,8 @@ public enum CGMDirectReadNeed: Equatable {
     case pairingCodeRejected
     /// A code, and no connection to the sensor yet.
     case firstConnection
+    /// A code, and a link to the sensor is up: the sensor is checking the code.
+    case checkingCode
 }
 
 public extension CGMManager {
