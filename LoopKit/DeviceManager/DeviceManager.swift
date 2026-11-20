@@ -116,11 +116,17 @@ public protocol DeviceConfigurationSharing: DeviceManager {
     /// Whether the user wants this device shared with another controller (for example a watch reading
     /// a CGM itself). The host exports only while it is true. Default: true.
     var isConfigurationSharingEnabled: Bool { get }
+
+    /// The other controller's export changed (for example a new sensor or pairing code). Take it on in
+    /// place, keeping this manager and what it holds open (such as its Bluetooth central), and return
+    /// true; return false and the host builds a new manager instead. Default: false.
+    func adoptConfiguration(_ configuration: SharedDeviceConfiguration) -> Bool
 }
 
 public extension DeviceConfigurationSharing {
     var localState: [String: Any]? { nil }
     var isConfigurationSharingEnabled: Bool { true }
+    func adoptConfiguration(_ configuration: SharedDeviceConfiguration) -> Bool { false }
 }
 
 /// A device whose hardware allows one controller at a time. Release, take and readiness say
