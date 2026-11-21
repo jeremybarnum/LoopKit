@@ -206,6 +206,11 @@ public protocol CGMManager: DeviceManager {
     /// Changes are reported to status observers.
     var directReadNeed: CGMDirectReadNeed? { get }
 
+    /// For a manager built from another controller's export: whether that controller's reading, by its
+    /// sync identifier, came from the sensor this manager reads. When the controller moves to a new
+    /// sensor, its latest reading is still the old sensor's. Nil when the manager cannot tell.
+    func readIsFromThisSensor(syncIdentifier: String) -> Bool?
+
     /// Tears the manager down and asks its delegate to remove it. Returns once the delegate has removed it.
     ///
     /// Implementations that tear down first should finish that teardown, including awaiting any alert
@@ -270,6 +275,8 @@ public extension CGMManager {
     var shortStatusNote: String? { nil }
 
     var directReadNeed: CGMDirectReadNeed? { nil }
+
+    func readIsFromThisSensor(syncIdentifier: String) -> Bool? { nil }
 
     /// Override this default behaviour if the CGM Manager needs to complete tasks before being deleted
     func delete() async {
