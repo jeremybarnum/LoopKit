@@ -228,6 +228,9 @@ public enum CGMDirectReadNeed: Equatable {
     case firstConnection
     /// A code, and a link to the sensor is up: the sensor is checking the code.
     case checkingCode
+    /// The sensor accepted the code and its link is up: the system's Bluetooth pairing request for the
+    /// sensor is showing on this device, or will once the app is on screen, and has to be accepted.
+    case pairingAcceptance
 }
 
 public extension CGMManager {
